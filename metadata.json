@@ -1,0 +1,6 @@
+{
+  "name": "OneWaySentinel AI",
+  "description": "Passive AI-powered cybersecurity threat detection & intelligence platform with physical data-diode one-way monitoring architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

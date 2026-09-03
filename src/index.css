@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #050508;
+    color: #e2e8f0;
+  }
+}
+
+/* SOC Monospace utilities */
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Immersive UI glow effects and custom styles */
+.shadow-glow-blue {
+  box-shadow: 0 0 15px rgba(37, 99, 235, 0.4);
+}
+
+.shadow-glow-red {
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.shadow-glow-green {
+  box-shadow: 0 0 15px rgba(34, 197, 94, 0.3);
+}
+
+/* Custom scrollbar for high-density tables */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a12;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
