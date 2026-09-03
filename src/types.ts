@@ -4,7 +4,8 @@ export type ThreatType =
   | 'UDP Reflection/Amplification'
   | 'Spoofed-Source Flood'
   | 'Botnet C2 Beaconing'
-  | 'General Traffic Anomaly';
+  | 'General Traffic Anomaly'
+  | 'Multi-Vector Mixed Attack';
 
 export type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
 
@@ -12,15 +13,19 @@ export type AlertStatus = 'New' | 'Investigating' | 'Verified' | 'Mitigated' | '
 
 export interface SecurityAlert {
   id: string;
+  alertId?: string;
   threatType: ThreatType;
   severity: Severity;
   confidenceScore: number; // e.g. 96 (%)
+  threatScore?: number; // 0 - 100
   timestamp: string;
   source: string;
   destination: string;
   protocol: 'TCP' | 'UDP' | 'ICMP' | 'DNS' | 'TLS' | 'NTP';
   supportingEvidence: string[];
   detectionMethod: string;
+  recommendedAction?: string;
+  simulationStatus?: string; // e.g. "SIMULATED SCENARIO" | "PCAP ANALYSIS" | "FLOW ANALYSIS"
   status: AlertStatus;
   packetRate?: number; // pps
   bandwidthRate?: string; // e.g. "14.2 Gbps"
@@ -30,6 +35,7 @@ export interface SecurityAlert {
 
 export interface NetworkPacket {
   id: string;
+  flowId?: string;
   timestamp: string;
   sourceIp: string;
   sourcePort: number;
@@ -38,6 +44,7 @@ export interface NetworkPacket {
   protocol: 'TCP' | 'UDP' | 'ICMP' | 'DNS' | 'TLS' | 'NTP' | 'SSDP';
   flags?: string; // e.g. "SYN", "SYN+ACK", "ACK", "RST", "FIN+ACK"
   length: number; // bytes
+  bytes?: number;
   interArrivalTimeMs: number;
   shannonEntropy: number; // 0.0 - 8.0
   isAnomaly: boolean;

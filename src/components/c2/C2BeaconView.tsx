@@ -34,13 +34,13 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
 
   // Synthetic scatter data: Connection interval (s) vs Payload Size (bytes)
   const scatterData = [
-    { interval: 45.2, size: 340, jitter: 3.4, name: '10.0.4.118 (Cobalt Strike)', confidence: 94, color: '#ef4444' },
-    { interval: 44.9, size: 340, jitter: 3.2, name: '10.0.4.118 (Cobalt Strike)', confidence: 94, color: '#ef4444' },
-    { interval: 45.8, size: 342, jitter: 3.6, name: '10.0.4.118 (Cobalt Strike)', confidence: 94, color: '#ef4444' },
-    { interval: 45.1, size: 340, jitter: 3.1, name: '10.0.4.118 (Cobalt Strike)', confidence: 94, color: '#ef4444' },
-    { interval: 120.2, size: 512, jitter: 5.1, name: '10.0.8.44 (Sliver C2)', confidence: 89, color: '#f59e0b' },
-    { interval: 119.8, size: 512, jitter: 4.8, name: '10.0.8.44 (Sliver C2)', confidence: 89, color: '#f59e0b' },
-    { interval: 300.5, size: 890, jitter: 12.8, name: '10.0.12.203 (IcedID)', confidence: 78, color: '#a855f7' },
+    { interval: 45.2, size: 340, jitter: 3.4, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+    { interval: 44.9, size: 340, jitter: 3.2, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+    { interval: 45.8, size: 342, jitter: 3.6, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+    { interval: 45.1, size: 340, jitter: 3.1, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+    { interval: 120.2, size: 512, jitter: 5.1, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
+    { interval: 119.8, size: 512, jitter: 4.8, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
+    { interval: 300.5, size: 890, jitter: 12.8, name: '10.0.12.203 (Simulated C2 beacon scenario)', confidence: 78, color: '#a855f7' },
     // Normal noise background
     { interval: 12.4, size: 1420, jitter: 45.0, name: 'Normal HTTP flow', confidence: 12, color: '#334155' },
     { interval: 28.1, size: 840, jitter: 62.0, name: 'Normal API poll', confidence: 18, color: '#334155' },
@@ -64,7 +64,7 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
         <div className="bg-[#050508] px-3 py-1.5 rounded border border-slate-800 text-xs flex items-center gap-2 font-mono">
           <span className="text-slate-500 text-[10px] uppercase tracking-wider">Analysis State:</span>
           <span className={`font-bold text-xs uppercase ${isC2Scenario ? 'text-red-400' : 'text-green-400'}`}>
-            {isC2Scenario ? 'Active Cobalt Strike Jitter Detected' : 'Continuous Spectral FFT Monitor'}
+            {isC2Scenario ? 'Simulated C2 Beacon Scenario Detected' : 'Continuous Spectral FFT Monitor'}
           </span>
         </div>
       </div>
@@ -106,7 +106,7 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
             a0e9f5d6...
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            TLS Client Hello cipher suite sequence matches known Cobalt Strike malleable C2 profile.
+            TLS Client Hello cipher suite sequence matches simulated Cobalt Strike-like malleable C2 profile.
           </p>
         </div>
       </div>
@@ -126,10 +126,10 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
             </div>
             <div className="flex items-center gap-3 text-[10px] font-mono">
               <span className="flex items-center gap-1 text-red-400">
-                <span className="w-2 h-2 rounded-full bg-red-500" /> Cobalt Strike
+                <span className="w-2 h-2 rounded-full bg-red-500" /> Simulated Cobalt Strike
               </span>
               <span className="flex items-center gap-1 text-amber-400">
-                <span className="w-2 h-2 rounded-full bg-amber-500" /> Sliver C2
+                <span className="w-2 h-2 rounded-full bg-amber-500" /> Simulated Sliver
               </span>
               <span className="flex items-center gap-1 text-slate-500">
                 <span className="w-2 h-2 rounded-full bg-slate-600" /> Background Noise
@@ -246,12 +246,12 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-[11px]">
-              {beacons.map((beacon) => (
+              {beacons.map((beacon, idx) => (
                 <tr
-                  key={beacon.id}
+                  key={`${beacon.id}-${idx}`}
                   onClick={() => setSelectedBeacon(beacon)}
                   className={`hover:bg-white/5 transition cursor-pointer ${
-                    selectedBeacon.id === beacon.id ? 'bg-purple-950/20 text-purple-200' : 'text-slate-300'
+                    selectedBeacon?.id === beacon.id ? 'bg-purple-950/20 text-purple-200' : 'text-slate-300'
                   }`}
                 >
                   <td className="py-2.5 px-3 font-bold text-slate-200">{beacon.sourceIp}</td>

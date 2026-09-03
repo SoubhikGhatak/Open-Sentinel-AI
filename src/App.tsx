@@ -33,6 +33,8 @@ import {
   generateInitialTimeline,
   generateSimulatedPacket
 } from './services/networkSimulator';
+import { DetectionEngineService } from './services/engineService';
+import { generateScenarioFlows } from './detection/simulation/trafficGenerator';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -79,6 +81,10 @@ export default function App() {
 
     setActiveScenario(found);
 
+    // Run real detection engine analysis for this scenario
+    const pipeline = DetectionEngineService.simulateScenario(found.id as any, 70);
+    setPackets(pipeline.displayPackets);
+
     // Call server endpoint if available
     try {
       await fetch('/api/simulate/scenario', {
@@ -90,33 +96,47 @@ export default function App() {
       // Offline fallback already updated activeScenario locally
     }
 
-    // Prepend a realistic alert if an attack scenario was triggered
-    if (found.activeThreat) {
+    // Prepend alerts generated directly by the real detection engine
+    if (pipeline.alerts.length > 0) {
+      setAlerts((prev) => {
+        const combined = [...pipeline.alerts, ...prev];
+        const seen = new Set<string>();
+        return combined.filter((a) => {
+          if (seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        }).slice(0, 30);
+      });
+    } else if (found.activeThreat) {
       const newAlert: SecurityAlert = {
-        id: `ALT-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+        id: `ALT-2026-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString(36).slice(-4)}`,
         threatType: found.activeThreat,
         severity: 'Critical',
-        confidenceScore: Math.floor(92 + Math.random() * 7),
+        confidenceScore: pipeline.threatScore.confidence || 95,
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC',
         source: found.id === 'syn-flood' ? '198.51.100.0/24 (Volumetric Botnet)' :
+                found.id === 'udp-flood' ? '198.51.100.0/24 (High-Rate Direct UDP)' :
                 found.id === 'udp-amplification' ? 'Public NTP Amplifiers (Port 123)' :
                 found.id === 'spoofed-source' ? 'Forged Bogon Subnets (100.64.0.0/10)' :
-                found.id === 'c2-beacon' ? '10.0.4.118 (Workstation-Finance-02)' : '10.0.2.45 (Internal Dev)',
+                found.id === 'c2-beacon' ? '10.0.4.118 (Workstation-Finance-02)' :
+                found.id === 'mixed-attack' ? 'Distributed Multi-Vector Ingress Nodes' : '10.0.2.45 (Internal Dev)',
         destination: found.targetService,
         protocol: found.id === 'syn-flood' ? 'TCP' :
+                  found.id === 'udp-flood' ? 'UDP' :
                   found.id === 'udp-amplification' ? 'NTP' :
                   found.id === 'spoofed-source' ? 'UDP' :
-                  found.id === 'c2-beacon' ? 'TLS' : 'TCP',
+                  found.id === 'c2-beacon' ? 'TLS' :
+                  found.id === 'mixed-attack' ? 'TCP' : 'TCP',
         supportingEvidence: [
           `Active scenario trigger: ${found.name}`,
-          `Traffic multiplier escalated to ${found.trafficMultiplier}x baseline`,
-          'Passive feature extraction pipeline detected statistical anomaly threshold breach',
-          'Zero mitigation back-channel opened (Enclave isolation intact)'
+          `Calculated Shannon Entropy: ${pipeline.features.ddos.sourceIPEntropy.toFixed(2)}`,
+          `Destination Concentration HHI: ${pipeline.features.ddos.destinationConcentrationHHI}`,
+          'Zero mitigation back-channel opened (Data diode isolation intact)'
         ],
         detectionMethod: 'Passive Feature Extraction & Ensemble Classifier',
         status: 'New',
-        packetRate: Math.floor(250000 * found.trafficMultiplier),
-        bandwidthRate: `${(found.trafficMultiplier * 3.4).toFixed(1)} Gbps`,
+        packetRate: pipeline.telemetry.packetsPerSecond,
+        bandwidthRate: `${((pipeline.telemetry.bytesPerSecond * 8) / 1e9).toFixed(2)} Gbps`,
         mitreTechnique: 'T1498 - Denial of Service'
       };
       setAlerts((prev) => [newAlert, ...prev]);
@@ -150,67 +170,62 @@ export default function App() {
     if (!isStreaming) return;
 
     const interval = setInterval(() => {
-      // Generate realistic packet flow
-      const newPacket = generateSimulatedPacket(activeScenario);
-      setPackets((prev) => [newPacket, ...prev.slice(0, 50)]);
+      // Generate flows and pass through feature extraction & detection pipeline
+      const flows = generateScenarioFlows(activeScenario.id as any, 20);
+      const pipeline = DetectionEngineService.analyzeFlows(flows, 'SIMULATION');
+
+      // Update recent packets display (deduplicate by packet id)
+      setPackets((prev) => {
+        const combined = [...pipeline.displayPackets.slice(0, 8), ...prev];
+        const seen = new Set<string>();
+        return combined.filter((p) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        }).slice(0, 50);
+      });
 
       // Update timeline
       const now = new Date();
       const timeStr = now.toTimeString().substring(0, 8);
-      const mult = activeScenario.trafficMultiplier;
-      const basePPS = Math.floor((42000 + Math.random() * 8000) * mult);
+      const pps = pipeline.telemetry.packetsPerSecond;
+      const bps = pipeline.telemetry.bytesPerSecond;
 
-      let entropy = 3.65 + Math.random() * 0.4;
-      let concentration = 0.32;
-
-      if (activeScenario.id === 'spoofed-source') {
-        entropy = 7.75 + Math.random() * 0.2;
-        concentration = 0.74;
-      } else if (activeScenario.id === 'syn-flood') {
-        entropy = 6.85 + Math.random() * 0.3;
-        concentration = 0.88;
-      } else if (activeScenario.id === 'udp-amplification') {
-        entropy = 5.62;
-        concentration = 0.91;
-      }
-
-      const tcpRatio = activeScenario.id === 'syn-flood' ? 0.88 : 0.62;
-      const udpRatio = activeScenario.id === 'udp-amplification' || activeScenario.id === 'spoofed-source' ? 0.76 : 0.24;
+      const tcpRatio = pipeline.features.general.protocolPercentages.TCP / 100 || 0.65;
+      const udpRatio = pipeline.features.general.protocolPercentages.UDP / 100 || 0.25;
 
       setTimeline((prev) => {
         const next = [
           ...prev,
           {
             time: timeStr,
-            totalPPS: basePPS,
-            tcpPPS: Math.floor(basePPS * tcpRatio),
-            udpPPS: Math.floor(basePPS * udpRatio),
-            icmpPPS: Math.floor(basePPS * 0.03),
-            otherPPS: Math.floor(basePPS * 0.08),
-            mbps: Number(((basePPS * 720 * 8) / 1000000).toFixed(1)),
-            entropy: Number(entropy.toFixed(2))
+            totalPPS: pps,
+            tcpPPS: Math.floor(pps * tcpRatio),
+            udpPPS: Math.floor(pps * udpRatio),
+            icmpPPS: Math.floor(pps * 0.02),
+            otherPPS: Math.floor(pps * 0.08),
+            mbps: Number(((bps * 8) / 1e6).toFixed(1)),
+            entropy: pipeline.features.ddos.sourceIPEntropy
           }
         ];
         return next.slice(-25);
       });
 
       // Update telemetry
-      const pps = Math.floor(48500 * mult + Math.random() * 2500);
-      const bps = pps * 680 * 8;
       setTelemetry((prev) => ({
         ...prev,
         packetsPerSecond: pps,
         bytesPerSecond: bps,
         totalPackets: prev.totalPackets + pps * 2,
         totalBytes: prev.totalBytes + bps / 4,
-        sourceIPEntropy: Number(entropy.toFixed(2)),
-        destinationConcentration: Number(concentration.toFixed(2)),
-        activeThreatsCount: activeScenario.activeThreat ? 4 : 1,
+        sourceIPEntropy: pipeline.features.ddos.sourceIPEntropy,
+        destinationConcentration: pipeline.features.ddos.destinationConcentrationHHI,
+        activeThreatsCount: pipeline.report.detectionSummary.detectedThreats.length > 0 ? pipeline.report.detectionSummary.detectedThreats.length : (activeScenario.activeThreat ? 4 : 1),
         criticalAlertsCount: alerts.filter((a) => a.severity === 'Critical' && a.status !== 'Mitigated').length,
-        averageAiConfidence: activeScenario.activeThreat ? 95.2 : 98.4,
+        averageAiConfidence: pipeline.threatScore.confidence,
         diodeReversePacketsTransmitted: 0 // Hardwired physical invariant
       }));
-    }, 2000);
+    }, 2500);
 
     return () => clearInterval(interval);
   }, [isStreaming, activeScenario, alerts]);

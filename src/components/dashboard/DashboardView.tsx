@@ -522,8 +522,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
-              {alerts.slice(0, 5).map((alert) => (
-                <tr key={alert.id} className="hover:bg-white/5 transition-colors">
+              {alerts.slice(0, 5).map((alert, idx) => (
+                <tr key={`${alert.id}-${idx}`} className="hover:bg-white/5 transition-colors">
                   <td className="py-2.5 px-4 text-slate-300 font-semibold">{alert.id}</td>
                   <td className="py-2.5 px-4 text-slate-100 font-sans font-medium">{alert.threatType}</td>
                   <td className="py-2.5 px-4">

@@ -40,11 +40,11 @@ export const OneWayDiodeBanner: React.FC<OneWayDiodeBannerProps> = ({ isOpen }) 
     },
     {
       id: 'step-3',
-      title: 'Passive Enclave',
+      title: 'Passive Monitoring Enclave',
       subtitle: 'DPDK Zero-Copy Ring Buffer',
       icon: ShieldAlert,
       color: 'border-emerald-500/50 bg-emerald-950/20 text-emerald-400',
-      badge: 'Zero Reverse Pkts'
+      badge: 'Egress Packets: 0'
     },
     {
       id: 'step-4',
@@ -108,9 +108,13 @@ export const OneWayDiodeBanner: React.FC<OneWayDiodeBannerProps> = ({ isOpen }) 
               Return Path: BLOCKED
             </span>
             <span className="text-slate-700">|</span>
-            <span className="text-blue-400 flex items-center gap-1 font-mono-code font-bold text-[11px]">
-              <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
-              Reverse Traffic: 0 Bps
+            <span className="text-emerald-400 flex items-center gap-1 font-mono-code font-bold text-[11px]">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              Egress Packets: 0
+            </span>
+            <span className="text-slate-700 hidden sm:inline">|</span>
+            <span className="text-blue-400 font-mono-code text-[10px] hidden sm:inline uppercase">
+              Production Network Access: NONE
             </span>
           </div>
         </div>

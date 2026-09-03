@@ -5,69 +5,67 @@ import {
   SIMULATION_SCENARIOS,
   INITIAL_ALERTS,
   INITIAL_C2_BEACONS,
-  INITIAL_INTEL_RECORDS,
-  generateSimulatedPacket,
-  generateInitialTimeline
+  INITIAL_INTEL_RECORDS
 } from './src/services/networkSimulator';
 import { NetworkPacket, SecurityAlert, TelemetryMetrics, SimulationScenario } from './src/types';
+import { runDetectionPipeline, getEngineModuleStatus } from './src/detection/engine';
+import { generateScenarioFlows } from './src/detection/simulation/trafficGenerator';
+import { parsePcapBinary } from './src/detection/parsers/pcapParser';
+import { parseCsvFlows } from './src/detection/parsers/csvParser';
+import { runAllAcceptanceTests } from './src/detection/tests/acceptanceTests';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.text({ limit: '50mb' }));
 
   // Mutable In-Memory State for Prototype SOC Backend
   let activeScenario: SimulationScenario = SIMULATION_SCENARIOS[0];
   let alerts: SecurityAlert[] = [...INITIAL_ALERTS];
-  const recentPackets: NetworkPacket[] = [];
-  const timelineHistory = generateInitialTimeline();
+  let recentPackets: NetworkPacket[] = [];
+  let timelineHistory: any[] = [];
+  let latestPipelineResult = runDetectionPipeline(generateScenarioFlows('normal', 60), 'SIMULATION');
 
-  // Populate initial packet buffer
-  for (let i = 0; i < 40; i++) {
-    recentPackets.push(generateSimulatedPacket(activeScenario));
-  }
+  recentPackets = latestPipelineResult.displayPackets;
+  timelineHistory = latestPipelineResult.timeline;
 
   // Periodic simulator background loop (simulates passive data diode ingress)
   setInterval(() => {
-    // Generate new packets according to active attack scenario
-    const newPacket = generateSimulatedPacket(activeScenario);
-    recentPackets.unshift(newPacket);
-    if (recentPackets.length > 100) {
-      recentPackets.pop();
-    }
+    // Generate new flow batch and execute detection pipeline
+    const flows = generateScenarioFlows(activeScenario.id as any, 30);
+    latestPipelineResult = runDetectionPipeline(flows, 'SIMULATION');
 
-    // Add new timeline point every 3 seconds
+    // Update packets and timeline (deduplicated by packet id)
+    const combinedPackets = [...latestPipelineResult.displayPackets.slice(0, 15), ...recentPackets];
+    const seenPktIds = new Set<string>();
+    recentPackets = combinedPackets.filter((p) => {
+      if (seenPktIds.has(p.id)) return false;
+      seenPktIds.add(p.id);
+      return true;
+    }).slice(0, 50);
+
     const now = new Date();
     const timeStr = now.toTimeString().substring(0, 8);
-    let mult = activeScenario.trafficMultiplier;
-    let basePPS = Math.floor((42000 + Math.random() * 8000) * mult);
-    let entropy = 3.65 + Math.random() * 0.4;
-    
-    if (activeScenario.id === 'spoofed-source') {
-      entropy = 7.75 + Math.random() * 0.2;
-    } else if (activeScenario.id === 'syn-flood') {
-      entropy = 6.85 + Math.random() * 0.3;
-    }
-
-    const tcpRatio = activeScenario.id === 'syn-flood' ? 0.88 : 0.62;
-    const udpRatio = activeScenario.id === 'udp-amplification' || activeScenario.id === 'spoofed-source' ? 0.76 : 0.24;
+    const pps = latestPipelineResult.telemetry.packetsPerSecond;
+    const mbps = Number(((latestPipelineResult.telemetry.bytesPerSecond * 8) / 1e6).toFixed(1));
 
     timelineHistory.push({
       time: timeStr,
-      totalPPS: basePPS,
-      tcpPPS: Math.floor(basePPS * tcpRatio),
-      udpPPS: Math.floor(basePPS * udpRatio),
-      icmpPPS: Math.floor(basePPS * 0.03),
-      otherPPS: Math.floor(basePPS * 0.08),
-      mbps: Number(((basePPS * 720 * 8) / 1000000).toFixed(1)),
-      entropy: Number(entropy.toFixed(2))
+      totalPPS: pps,
+      tcpPPS: Math.floor(pps * (latestPipelineResult.features.general.protocolPercentages.TCP / 100)),
+      udpPPS: Math.floor(pps * (latestPipelineResult.features.general.protocolPercentages.UDP / 100)),
+      icmpPPS: Math.floor(pps * 0.02),
+      otherPPS: Math.floor(pps * 0.08),
+      mbps,
+      entropy: latestPipelineResult.features.ddos.sourceIPEntropy
     });
 
     if (timelineHistory.length > 30) {
       timelineHistory.shift();
     }
-  }, 2000);
+  }, 2500);
 
   // Health endpoint
   app.get('/api/health', (req, res) => {
@@ -232,6 +230,95 @@ async function startServer() {
       return res.json({ success: true, activeScenario });
     }
     res.status(400).json({ error: 'Scenario not found' });
+  });
+
+  // Ingestion & Detection API: Analyze normalized flows
+  app.post('/api/analyze', (req, res) => {
+    try {
+      const { flows, sourceType, filename } = req.body;
+      if (!flows || !Array.isArray(flows)) {
+        return res.status(400).json({ error: 'Expected an array of TrafficFlow objects in the "flows" property.' });
+      }
+      const result = runDetectionPipeline(flows, sourceType || 'SIMULATION', filename);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Analysis pipeline failure.' });
+    }
+  });
+
+  // Ingestion & Detection API: Parse & Analyze PCAP (Base64 or Raw)
+  app.post('/api/analyze/pcap', (req, res) => {
+    try {
+      const { base64Data, filename } = req.body;
+      if (!base64Data) {
+        return res.status(400).json({ error: 'Missing base64Data in request body.' });
+      }
+      const buffer = Buffer.from(base64Data, 'base64');
+      const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+
+      const parseResult = parsePcapBinary(arrayBuffer);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: parseResult.error || 'Failed to parse PCAP file header.'
+        });
+      }
+
+      const analysisResult = runDetectionPipeline(parseResult.flows, 'PCAP', filename || 'capture.pcap');
+      res.json({
+        success: true,
+        parseMetadata: parseResult.metadata,
+        analysis: analysisResult
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to process PCAP capture.' });
+    }
+  });
+
+  // Ingestion & Detection API: Parse & Analyze CSV / NetFlow Flows
+  app.post('/api/analyze/flows', (req, res) => {
+    try {
+      let csvContent = '';
+      if (typeof req.body === 'string') {
+        csvContent = req.body;
+      } else if (req.body && req.body.csvText) {
+        csvContent = req.body.csvText;
+      } else {
+        return res.status(400).json({ error: 'Expected CSV string payload.' });
+      }
+
+      const parseResult = parseCsvFlows(csvContent);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: parseResult.error || 'Failed to parse CSV flows.'
+        });
+      }
+
+      const analysisResult = runDetectionPipeline(parseResult.flows, 'CSV', req.body.filename || 'flows.csv');
+      res.json({
+        success: true,
+        rowCount: parseResult.rowCount,
+        analysis: analysisResult
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to process CSV flow data.' });
+    }
+  });
+
+  // Verification Test Suite Runner
+  app.get('/api/tests/run', (req, res) => {
+    try {
+      const suite = runAllAcceptanceTests();
+      res.json(suite);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Test execution failure.' });
+    }
+  });
+
+  // Detection Engine Module Statuses
+  app.get('/api/system/modules', (req, res) => {
+    res.json({ modules: getEngineModuleStatus() });
   });
 
   // System & Hardware Diode specifications

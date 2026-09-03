@@ -13,16 +13,16 @@ import {
 export const SIMULATION_SCENARIOS: SimulationScenario[] = [
   {
     id: 'baseline',
-    name: 'Normal Enterprise Baseline',
+    name: 'Normal Enterprise Baseline (Simulated)',
     category: 'Baseline',
-    description: 'Routine corporate network ingress: HTTPS microservices, DNS resolutions, and TLS telemetry. No active anomalies detected.',
+    description: 'Routine corporate network ingress: HTTPS microservices, DNS resolutions, and TLS telemetry. No active anomalies detected. Synthetic passive baseline.',
     targetService: 'All Ingress Nodes',
     trafficMultiplier: 1.0,
     activeThreat: null
   },
   {
     id: 'syn-flood',
-    name: 'SYN Flood Volumetric Attack',
+    name: 'SYN Flood Volumetric Attack (Simulated)',
     category: 'DDoS',
     description: 'High-frequency TCP SYN packet burst targeting public-facing Web VIP (192.168.10.45:443) without completing 3-way handshakes.',
     targetService: 'Web Application VIP (192.168.10.45:443)',
@@ -30,8 +30,17 @@ export const SIMULATION_SCENARIOS: SimulationScenario[] = [
     activeThreat: 'SYN Flood'
   },
   {
+    id: 'udp-flood',
+    name: 'UDP Flood Ingress Burst (Simulated)',
+    category: 'DDoS',
+    description: 'High-rate direct UDP datagram stream directed at internal authoritative DNS services (port 53) to saturate ingress bandwidth.',
+    targetService: 'Authoritative DNS (192.168.10.50:53)',
+    trafficMultiplier: 5.0,
+    activeThreat: 'UDP Flood'
+  },
+  {
     id: 'udp-amplification',
-    name: 'NTP/DNS UDP Reflection & Amplification',
+    name: 'UDP Reflection & Amplification (Simulated)',
     category: 'DDoS',
     description: 'Reflected volumetric attack leveraging misconfigured external NTP/DNS servers with an amplification ratio > 55x targeting core DB proxy.',
     targetService: 'Core DB Gateway (192.168.20.10:5432)',
@@ -40,7 +49,7 @@ export const SIMULATION_SCENARIOS: SimulationScenario[] = [
   },
   {
     id: 'spoofed-source',
-    name: 'Distributed Spoofed-Source Flood',
+    name: 'Distributed Spoofed-Source Flood (Simulated)',
     category: 'DDoS',
     description: 'High-entropy packet burst utilizing forged bogon source IPs to exhaust enclave state tables and confuse flow reassembly.',
     targetService: 'API Gateway (192.168.10.1:8080)',
@@ -49,16 +58,25 @@ export const SIMULATION_SCENARIOS: SimulationScenario[] = [
   },
   {
     id: 'c2-beacon',
-    name: 'Stealth Botnet C2 Beaconing (Cobalt Strike)',
+    name: 'C2 Beaconing Scenario (Simulated)',
     category: 'C2',
-    description: 'Low-and-slow periodic TLS heartbeats with low jitter (45s ± 3%) to external rogue IP, mimicking legitimate user analytics.',
+    description: 'Low-and-slow periodic TLS heartbeats with low jitter (45s ± 3%) to external IP, characteristic of simulated Cobalt Strike-like beacon patterns.',
     targetService: 'Internal Workstation WS-092 (10.0.4.118)',
     trafficMultiplier: 1.2,
     activeThreat: 'Botnet C2 Beaconing'
   },
   {
+    id: 'mixed-attack',
+    name: 'Multi-Vector Attack Scenario (Simulated)',
+    category: 'DDoS',
+    description: 'Composite multi-vector attack combining concurrent TCP SYN flood volumetric pressure, amplified NTP reflection, and stealth C2 beacon callbacks.',
+    targetService: 'Core Ingress Segment & DMZ',
+    trafficMultiplier: 6.8,
+    activeThreat: 'SYN Flood'
+  },
+  {
     id: 'traffic-anomaly',
-    name: 'High-Velocity Protocol Anomaly & Port Scan',
+    name: 'Protocol Anomaly & Port Scan (Simulated)',
     category: 'Anomaly',
     description: 'Sudden divergence in protocol distribution with abnormal non-standard port traffic and high packet inter-arrival burst variance.',
     targetService: 'Internal Subnet 10.0.4.0/24',
@@ -77,7 +95,7 @@ export const INITIAL_C2_BEACONS: C2BeaconCandidate[] = [
     jitterPercentage: 3.4,
     confidenceScore: 94,
     ja3Hash: 'a0e9f5d64349fb13191bc781f81f42e1',
-    knownMalwareFamily: 'Cobalt Strike (Malleable C2)',
+    knownMalwareFamily: 'Simulated Cobalt Strike-like beacon pattern (45s sleep profile, uniform payload)',
     beaconCount: 142,
     firstSeen: '2026-09-03 04:12:08 UTC',
     lastSeen: '2026-09-03 07:58:33 UTC',
@@ -93,7 +111,7 @@ export const INITIAL_C2_BEACONS: C2BeaconCandidate[] = [
     jitterPercentage: 5.1,
     confidenceScore: 89,
     ja3Hash: '72c03fb41f1737e6f3e180860e517300',
-    knownMalwareFamily: 'Sliver C2 Framework',
+    knownMalwareFamily: 'Simulated Sliver-like implant beacon scenario (120s heartbeat profile)',
     beaconCount: 58,
     firstSeen: '2026-09-03 06:30:15 UTC',
     lastSeen: '2026-09-03 07:59:12 UTC',
@@ -109,7 +127,7 @@ export const INITIAL_C2_BEACONS: C2BeaconCandidate[] = [
     jitterPercentage: 12.8,
     confidenceScore: 78,
     ja3Hash: 'b384631043b380f8164e864164f331bb',
-    knownMalwareFamily: 'IcedID / BokBot Loader',
+    knownMalwareFamily: 'Simulated C2 beacon scenario',
     beaconCount: 24,
     firstSeen: '2026-09-03 07:10:00 UTC',
     lastSeen: '2026-09-03 07:56:44 UTC',
@@ -387,9 +405,69 @@ export function generateSimulatedPacket(scenario: SimulationScenario): NetworkPa
     }
   }
 
-  if (scenario.id === 'c2-beacon') {
-    const isBeacon = Math.random() < 0.25;
-    if (isBeacon) {
+  if (scenario.id === 'udp-flood') {
+    const isAttack = Math.random() < 0.75;
+    if (isAttack) {
+      const srcSubnet = ['198.51.100.', '203.0.113.', '192.0.2.'][Math.floor(Math.random() * 3)];
+      const srcIp = `${srcSubnet}${Math.floor(Math.random() * 254) + 1}`;
+      return {
+        id,
+        timestamp,
+        sourceIp: srcIp,
+        sourcePort: Math.floor(Math.random() * 60000) + 1025,
+        destIp: '192.168.10.50',
+        destPort: 53,
+        protocol: 'UDP',
+        flags: '',
+        length: 512,
+        interArrivalTimeMs: Number((Math.random() * 0.12).toFixed(3)),
+        shannonEntropy: 6.8,
+        isAnomaly: true,
+        threatTag: 'UDP Flood',
+        payloadSnippet: '0x10a200... [Direct UDP DNS Flood query]'
+      };
+    }
+  }
+
+  if (scenario.id === 'mixed-attack') {
+    const attackType = Math.random();
+    if (attackType < 0.35) {
+      // SYN flood component
+      return {
+        id,
+        timestamp,
+        sourceIp: `198.51.100.${Math.floor(Math.random() * 254) + 1}`,
+        sourcePort: Math.floor(Math.random() * 60000) + 1025,
+        destIp: '192.168.10.45',
+        destPort: 443,
+        protocol: 'TCP',
+        flags: 'SYN',
+        length: 64,
+        interArrivalTimeMs: 0.05,
+        shannonEntropy: 7.2,
+        isAnomaly: true,
+        threatTag: 'SYN Flood',
+        payloadSnippet: '0x4500003c... [TCP SYN Multi-Vector Attack Burst]'
+      };
+    } else if (attackType < 0.6) {
+      // Amplified reflection component
+      return {
+        id,
+        timestamp,
+        sourceIp: '129.6.15.28',
+        sourcePort: 123,
+        destIp: '192.168.20.10',
+        destPort: 5432,
+        protocol: 'NTP',
+        length: 1420,
+        interArrivalTimeMs: 0.08,
+        shannonEntropy: 5.6,
+        isAnomaly: true,
+        threatTag: 'UDP Reflection/Amplification',
+        payloadSnippet: '0x1700032a... [NTP Reflection response]'
+      };
+    } else if (attackType < 0.75) {
+      // C2 beacon component
       return {
         id,
         timestamp,
@@ -400,11 +478,11 @@ export function generateSimulatedPacket(scenario: SimulationScenario): NetworkPa
         protocol: 'TLS',
         flags: 'ACK+PSH',
         length: 340,
-        interArrivalTimeMs: 45200 + (Math.random() * 3000 - 1500),
+        interArrivalTimeMs: 45000,
         shannonEntropy: 4.1,
         isAnomaly: true,
         threatTag: 'Botnet C2 Beaconing',
-        payloadSnippet: '0x170303... [TLS Application Data - Periodic Beacon Heartbeat]'
+        payloadSnippet: '0x170303... [Simulated C2 Beacon Heartbeat]'
       };
     }
   }

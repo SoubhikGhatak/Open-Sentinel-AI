@@ -159,9 +159,9 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredAlerts.map((alert) => (
+                  filteredAlerts.map((alert, idx) => (
                     <tr
-                      key={alert.id}
+                      key={`${alert.id}-${idx}`}
                       onClick={() => setSelectedAlert(alert)}
                       className={`transition cursor-pointer ${
                         selectedAlert?.id === alert.id

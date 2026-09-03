@@ -158,9 +158,9 @@ export const LiveTrafficView: React.FC<LiveTrafficViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredPackets.map((pkt) => (
+                filteredPackets.map((pkt, idx) => (
                   <tr
-                    key={pkt.id}
+                    key={`${pkt.id}-${idx}`}
                     onClick={() => setSelectedPacket(pkt)}
                     className={`transition cursor-pointer ${
                       pkt.isAnomaly

@@ -40,30 +40,32 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3 text-slate-400">
           <div className="flex items-center gap-2 px-2.5 py-0.5 bg-green-500/10 border border-green-500/20 rounded-full">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-[10px] uppercase font-bold text-green-400 tracking-wider">Enclave: Passive-Active</span>
+            <span className="text-[10px] uppercase font-bold text-green-400 tracking-wider">Passive Monitoring Enclave: STRICTLY PASSIVE</span>
           </div>
           <span className="hidden md:inline text-slate-700">|</span>
           <span className="hidden md:flex items-center gap-1.5 text-blue-400 font-mono-code text-[11px]">
             <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-            <span>OPTICAL DATA DIODE: 1-WAY ISOLATION (TX DISABLED)</span>
+            <span>ONE-WAY INGRESS (RETURN PATH: BLOCKED)</span>
           </span>
           <span className="hidden lg:inline text-slate-700">|</span>
           <span className="hidden lg:flex items-center gap-1.5 text-emerald-400 font-mono-code text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-            EGRESS PACKETS: {telemetry.diodeReversePacketsTransmitted} (PHYSICAL INVARIANT)
+            EGRESS PACKETS: 0 (PRODUCTION NETWORK ACCESS: NONE)
           </span>
         </div>
 
-        <div className="flex items-center gap-4 text-slate-400">
-          <div className="hidden sm:flex flex-col items-end">
-            <span className="text-[9px] uppercase text-slate-500 font-medium tracking-wider">System Integrity</span>
-            <span className="text-[11px] font-mono-code text-blue-400 font-bold">99.998% UPTIME</span>
+        <div className="flex items-center gap-3 text-slate-400">
+          <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/25">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-[10px] font-mono-code uppercase font-bold text-amber-400 tracking-wider">SIMULATION MODE</span>
+            <span className="text-slate-600 hidden xl:inline">|</span>
+            <span className="text-[10px] font-mono-code text-slate-400 hidden xl:inline">Data Source: Synthetic Passive Flow Generator</span>
           </div>
           <div className="hidden md:flex flex-col items-end">
-            <span className="text-[9px] uppercase text-slate-500 font-medium tracking-wider">Optical Power</span>
+            <span className="text-[9px] uppercase text-slate-500 font-medium tracking-wider">Optical Rx Power</span>
             <span className="text-[11px] font-mono-code text-slate-300">{telemetry.diodeOpticalRxPowerDbm} dBm</span>
           </div>
           <span className="text-[9px] bg-blue-600/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 font-mono-code font-bold uppercase tracking-wider">
-            SIH 2026 PROTOTYPE
+            PASSIVE SOC ENCLAVE
           </span>
         </div>
       </div>
