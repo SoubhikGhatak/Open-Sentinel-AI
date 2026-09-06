@@ -79,38 +79,13 @@ async function startServer() {
 
   // Current Telemetry
   app.get('/api/telemetry', (req, res) => {
-    let pps = Math.floor(48500 * activeScenario.trafficMultiplier + Math.random() * 2500);
-    let bps = pps * 680 * 8; // bits per second
-    let entropy = 3.72;
-    let concentration = 0.32;
-
-    if (activeScenario.id === 'syn-flood') {
-      entropy = 6.95;
-      concentration = 0.88; // high concentration on victim IP
-    } else if (activeScenario.id === 'spoofed-source') {
-      entropy = 7.84;
-      concentration = 0.74;
-    } else if (activeScenario.id === 'udp-amplification') {
-      entropy = 5.62;
-      concentration = 0.91;
-    }
-
     const telemetry: TelemetryMetrics = {
-      monitoringStatus: 'ACTIVE_ONE_WAY',
-      totalPackets: 1849204000 + Math.floor(Math.random() * 500000),
-      totalBytes: 1420800000000 + Math.floor(Math.random() * 40000000),
-      packetsPerSecond: pps,
-      bytesPerSecond: bps,
-      activeThreatsCount: activeScenario.activeThreat ? 4 : 1,
+      ...latestPipelineResult.telemetry,
+      activeThreatsCount: latestPipelineResult.report.detectionSummary.detectedThreats.length > 0
+        ? latestPipelineResult.report.detectionSummary.detectedThreats.length
+        : (activeScenario.activeThreat ? 4 : 1),
       criticalAlertsCount: alerts.filter(a => a.severity === 'Critical' && a.status !== 'Mitigated' && a.status !== 'False Positive').length,
-      averageAiConfidence: activeScenario.activeThreat ? 95.2 : 98.4,
-      sourceIPEntropy: Number(entropy.toFixed(2)),
-      destinationConcentration: Number(concentration.toFixed(2)),
-      diodeReversePacketsTransmitted: 0, // Invariant
-      diodeOpticalRxPowerDbm: -14.2,
-      diodeTxHardwareDisabled: true, // Physical guarantee
-      pipelineLatencyMs: 0.84,
-      mlInferenceLatencyMs: 2.15
+      averageAiConfidence: latestPipelineResult.threatScore.confidence
     };
 
     res.json({
@@ -131,37 +106,46 @@ async function startServer() {
 
   // DDoS Detection Metrics
   app.get('/api/threats/ddos', (req, res) => {
+    const ddosFeats = latestPipelineResult.features.ddos;
+    const generalFeats = latestPipelineResult.features.general;
     const isSynAttack = activeScenario.id === 'syn-flood';
     const isUdpAmp = activeScenario.id === 'udp-amplification';
     const isSpoofed = activeScenario.id === 'spoofed-source';
+    const isUdpFlood = activeScenario.id === 'udp-flood';
+
+    const topTargetVips = ddosFeats.targetVIPConcentration.map(t => ({
+      ip: t.ip,
+      service: t.ip === '192.168.10.45' ? 'HTTPS Web VIP' : t.ip === '192.168.20.10' ? 'Core Database Gateway' : t.ip === '192.168.10.1' ? 'API Ingress Gateway' : 'Monitored Service',
+      pps: Math.round(t.percentage * (latestPipelineResult.telemetry.packetsPerSecond / 100)),
+      percentage: t.percentage
+    }));
+
+    const amplificationVectors = [
+      { protocol: 'NTP Monlist', port: 123, pps: generalFeats.destinationPortDistribution[123] || 0, factor: '55.4x' },
+      { protocol: 'DNS ANY Query', port: 53, pps: generalFeats.destinationPortDistribution[53] || 0, factor: '28.0x' },
+      { protocol: 'Memcached Get', port: 11211, pps: generalFeats.destinationPortDistribution[11211] || 0, factor: '4000.0x' },
+      { protocol: 'SSDP Discover', port: 1900, pps: generalFeats.destinationPortDistribution[1900] || 0, factor: '30.8x' }
+    ];
 
     res.json({
       metrics: {
         synFloodIntensity: isSynAttack ? 94 : 4,
-        udpFloodIntensity: isUdpAmp || isSpoofed ? 91 : 8,
-        amplificationFactor: isUdpAmp ? 55.4 : 1.2,
-        spoofedEntropyScore: isSpoofed ? 7.84 : isSynAttack ? 6.95 : 3.72,
-        synToAckRatio: isSynAttack ? 48.6 : 1.02,
-        topTargetVips: [
-          { ip: '192.168.10.45', service: 'HTTPS Web VIP', pps: isSynAttack ? 385000 : 18000, percentage: isSynAttack ? 74 : 32 },
-          { ip: '192.168.20.10', service: 'Core Database Gateway', pps: isUdpAmp ? 290000 : 12000, percentage: isUdpAmp ? 68 : 22 },
-          { ip: '192.168.10.1', service: 'API Ingress Gateway', pps: isSpoofed ? 175000 : 11000, percentage: isSpoofed ? 55 : 20 },
-          { ip: '192.168.10.50', service: 'Authoritative DNS', pps: 9200, percentage: 14 }
-        ],
-        amplificationVectors: [
-          { protocol: 'NTP Monlist', port: 123, pps: isUdpAmp ? 180000 : 250, factor: '55.4x' },
-          { protocol: 'DNS ANY Query', port: 53, pps: isUdpAmp ? 72000 : 1800, factor: '28.0x' },
-          { protocol: 'Memcached Get', port: 11211, pps: isUdpAmp ? 41000 : 40, factor: '4000.0x' },
-          { protocol: 'SSDP Discover', port: 1900, pps: isUdpAmp ? 17000 : 120, factor: '30.8x' }
-        ]
-      }
+        udpFloodIntensity: isUdpFlood || isUdpAmp || isSpoofed ? 91 : 8,
+        amplificationFactor: isUdpAmp ? Number((generalFeats.averagePacketSize / 64).toFixed(1)) : 1.0,
+        spoofedEntropyScore: ddosFeats.sourceIPEntropy,
+        synToAckRatio: ddosFeats.synToAckRatio,
+        topTargetVips,
+        amplificationVectors
+      },
+      detection: latestPipelineResult.ddos
     });
   });
 
   // C2 Beacon Detection
   app.get('/api/threats/c2', (req, res) => {
     res.json({
-      beacons: INITIAL_C2_BEACONS,
+      beacons: latestPipelineResult.c2Candidates.length > 0 ? latestPipelineResult.c2Candidates : INITIAL_C2_BEACONS,
+      clusters: latestPipelineResult.c2Clusters,
       activeBeaconMode: activeScenario.id === 'c2-beacon'
     });
   });
@@ -244,6 +228,36 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Analysis pipeline failure.' });
     }
+  });
+
+  // Python ML Inference Service Bridge Interface
+  // Allows external Python ML service (FastAPI/Triton) to connect and provide deep learning predictions
+  app.get('/api/ml/status', (req, res) => {
+    res.json({
+      service: 'OneWaySentinel AI ML Bridge',
+      status: 'STATISTICAL_ENGINE_ACTIVE',
+      schemaVersion: '2.4.0',
+      connectedMlBackend: null,
+      supportedModels: ['RandomForest-DDoS-v2', 'AutoEncoder-Anomaly-v1', 'FFT-Spectral-C2'],
+      readyForExternalService: true
+    });
+  });
+
+  app.post('/api/ml/predict', (req, res) => {
+    // When external Python ML service sends predictions or requests inference features
+    const inputFeatures = req.body?.features || latestPipelineResult.features;
+    res.json({
+      success: true,
+      detectionMode: 'Statistical & Behavioral Ensemble',
+      mlEngineStatus: 'STANDBY_SOCKET_READY',
+      featuresProcessed: Object.keys(inputFeatures).length,
+      prediction: {
+        score: latestPipelineResult.threatScore.score,
+        confidence: latestPipelineResult.threatScore.confidence,
+        severity: latestPipelineResult.threatScore.severity,
+        detectedThreat: latestPipelineResult.ddos.threatType || (activeScenario.id === 'c2-beacon' ? 'Botnet C2 Beaconing' : 'None')
+      }
+    });
   });
 
   // Ingestion & Detection API: Parse & Analyze PCAP (Base64 or Raw)

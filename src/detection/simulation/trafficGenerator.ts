@@ -80,8 +80,8 @@ export function generateScenarioFlows(
         const dstIp = serverVIPs[i % serverVIPs.length];
         const proto = protoList[i % protoList.length];
         const dstPort = proto === 'TLS' ? 443 : proto === 'DNS' ? 53 : proto === 'UDP' ? 8080 : 80;
-        const timeOffset = i * 850;
-        const pkts = 8 + (i % 15);
+        const timeOffset = i * 40;
+        const pkts = 15 + (i % 20);
         const avgSize = 550 + ((i * 37) % 500);
         const flowDuration = 300 + (i % 400);
         const interArrival = Number((flowDuration / Math.max(1, pkts - 1)).toFixed(2));

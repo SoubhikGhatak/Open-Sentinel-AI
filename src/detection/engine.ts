@@ -187,7 +187,9 @@ export function runDetectionPipeline(
 
     return {
       id: packetId,
-      timestamp: f.timestamp.replace('T', ' ').substring(0, 19),
+      timestamp: f.timestamp
+        ? f.timestamp.replace('T', ' ').substring(0, 19)
+        : new Date().toISOString().replace('T', ' ').substring(0, 19),
       sourceIp: f.sourceIP,
       destIp: f.destinationIP,
       sourcePort: f.sourcePort,

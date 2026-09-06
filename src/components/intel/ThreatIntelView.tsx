@@ -28,10 +28,10 @@ export const ThreatIntelView: React.FC<ThreatIntelViewProps> = ({ intelRecords }
   const filteredRecords = intelRecords.filter((rec) => {
     const q = searchQuery.toLowerCase();
     return (
-      rec.iocValue.toLowerCase().includes(q) ||
-      rec.threatActor.toLowerCase().includes(q) ||
-      rec.threatType.toLowerCase().includes(q) ||
-      rec.iocType.toLowerCase().includes(q)
+      (rec.iocValue || '').toLowerCase().includes(q) ||
+      (rec.threatActor || '').toLowerCase().includes(q) ||
+      (rec.threatType || '').toLowerCase().includes(q) ||
+      (rec.iocType || '').toLowerCase().includes(q)
     );
   });
 
@@ -54,7 +54,7 @@ export const ThreatIntelView: React.FC<ThreatIntelViewProps> = ({ intelRecords }
         id: `indicator--${r.id}`,
         created: '2026-09-03T00:00:00.000Z',
         name: `${r.threatType} indicator for ${r.threatActor}`,
-        pattern: `[${r.iocType.toLowerCase()}-addr:value = '${r.iocValue}']`,
+        pattern: `[${(r.iocType || 'ipv4').toLowerCase()}-addr:value = '${r.iocValue}']`,
         valid_from: '2026-09-03T00:00:00.000Z',
         confidence: r.confidenceScore,
         labels: r.mitreTactics

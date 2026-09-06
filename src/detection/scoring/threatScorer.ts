@@ -146,12 +146,15 @@ export function generateAlertsFromAnalysis(
       threatType: ddosResult.threatType,
       severity: ddosResult.severity,
       confidence: ddosResult.confidence,
+      confidenceScore: ddosResult.confidence,
       threatScore: threatScore.score,
       source: ddosResult.sourceSummary,
       target: ddosResult.targetSummary,
+      destination: ddosResult.targetSummary,
       protocol: ddosResult.threatType === 'SYN Flood' ? 'TCP' : ddosResult.threatType === 'UDP Reflection/Amplification' ? 'NTP' : 'UDP',
       detectionMethod: 'Passive Multi-Signal Flow & Entropy Analyzer',
       evidence: ddosResult.evidence,
+      supportingEvidence: ddosResult.evidence,
       features: ddosResult.featureValues,
       packetRate: features.general.packetsPerSecond,
       bandwidthRate: `${((features.general.bytesPerSecond * 8) / 1e9).toFixed(2)} Gbps`,
@@ -169,6 +172,12 @@ export function generateAlertsFromAnalysis(
       cluster.classification === 'High-Confidence C2 Beacon'
     ) {
       const alertId = `alert-${cluster.id}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const targetStr = `${cluster.destinationIp}:${cluster.destinationPort}`;
+      const c2Evidence = [
+        ...cluster.evidence,
+        cluster.potentialC2FamilyCorrelation ? `Behavioral correlation: ${cluster.potentialC2FamilyCorrelation}` : 'Simulated C2 beacon scenario',
+        'Zero packet transmission initiated by monitoring enclave (passive observation only)'
+      ];
       alerts.push({
         id: alertId,
         alertId,
@@ -176,16 +185,15 @@ export function generateAlertsFromAnalysis(
         threatType: 'Botnet C2 Beaconing',
         severity: 'High',
         confidence: 94,
+        confidenceScore: 94,
         threatScore: threatScore.score,
         source: cluster.sourceIp,
-        target: `${cluster.destinationIp}:${cluster.destinationPort}`,
+        target: targetStr,
+        destination: targetStr,
         protocol: cluster.protocol,
         detectionMethod: 'Inter-Arrival Time (IAT) Spectral & Jitter FFT Analyzer',
-        evidence: [
-          ...cluster.evidence,
-          cluster.potentialC2FamilyCorrelation ? `Behavioral correlation: ${cluster.potentialC2FamilyCorrelation}` : 'Simulated C2 beacon scenario',
-          'Zero packet transmission initiated by monitoring enclave (passive observation only)'
-        ],
+        evidence: c2Evidence,
+        supportingEvidence: c2Evidence,
         features: {
           interval: `${cluster.meanIntervalSeconds}s`,
           jitter: `${cluster.jitterPercentage}%`,

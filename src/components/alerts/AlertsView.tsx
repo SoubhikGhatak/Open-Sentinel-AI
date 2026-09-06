@@ -33,17 +33,33 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
     initialSelectedAlert || alerts[0] || null
   );
 
+  React.useEffect(() => {
+    if (initialSelectedAlert) {
+      const fresh = alerts.find((a) => a.id === initialSelectedAlert.id) || initialSelectedAlert;
+      setSelectedAlert(fresh);
+    } else if (selectedAlert) {
+      const fresh = alerts.find((a) => a.id === selectedAlert.id);
+      if (fresh) {
+        setSelectedAlert(fresh);
+      } else if (alerts.length > 0) {
+        setSelectedAlert(alerts[0]);
+      }
+    } else if (alerts.length > 0) {
+      setSelectedAlert(alerts[0]);
+    }
+  }, [initialSelectedAlert, alerts]);
+
   const filteredAlerts = alerts.filter((alert) => {
     if (severityFilter !== 'ALL' && alert.severity !== severityFilter) return false;
     if (threatTypeFilter !== 'ALL' && alert.threatType !== threatTypeFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
-        alert.id.toLowerCase().includes(q) ||
-        alert.threatType.toLowerCase().includes(q) ||
-        alert.source.toLowerCase().includes(q) ||
-        alert.destination.toLowerCase().includes(q) ||
-        alert.detectionMethod.toLowerCase().includes(q)
+        (alert.id || '').toLowerCase().includes(q) ||
+        (alert.threatType || '').toLowerCase().includes(q) ||
+        (alert.source || '').toLowerCase().includes(q) ||
+        (alert.destination || (alert as any).target || '').toLowerCase().includes(q) ||
+        (alert.detectionMethod || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -186,7 +202,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
                       </td>
                       <td className="py-3 px-3 text-green-400 font-bold">{alert.confidenceScore}%</td>
                       <td className="py-3 px-3 text-slate-400 truncate max-w-xs font-mono">
-                        {alert.destination.split(' ')[0]}
+                        {((alert.destination || (alert as any).target) || 'Unknown VIP').split(' ')[0]}
                       </td>
                       <td className="py-3 px-3">
                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase tracking-wider ${
@@ -259,14 +275,14 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
               <div className="space-y-1 text-xs">
                 <span className="text-slate-500 font-mono text-[9px] uppercase tracking-wider block">SOURCE SOCKET / CLUSTER</span>
                 <div className="bg-[#050508] p-2 rounded border border-slate-800 font-mono text-slate-200 text-xs">
-                  {selectedAlert.source}
+                  {selectedAlert.source || 'Unknown'}
                 </div>
               </div>
 
               <div className="space-y-1 text-xs">
                 <span className="text-slate-500 font-mono text-[9px] uppercase tracking-wider block">PROTECTED DESTINATION TARGET</span>
                 <div className="bg-[#050508] p-2 rounded border border-slate-800 font-mono text-blue-400 text-xs">
-                  {selectedAlert.destination}
+                  {selectedAlert.destination || (selectedAlert as any).target || 'Unknown VIP'}
                 </div>
               </div>
 
@@ -277,7 +293,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({
                   Supporting Evidence:
                 </span>
                 <ul className="bg-[#050508] p-2.5 rounded border border-slate-800 space-y-1.5 text-slate-300 text-xs">
-                  {selectedAlert.supportingEvidence.map((ev, i) => (
+                  {(selectedAlert.supportingEvidence || (selectedAlert as any).evidence || []).map((ev: string, i: number) => (
                     <li key={i} className="flex items-start gap-2">
                       <span className="text-blue-400 font-bold mt-0.5">•</span>
                       <span className="text-xs text-slate-300">{ev}</span>

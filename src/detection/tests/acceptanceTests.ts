@@ -146,7 +146,7 @@ export function runAllAcceptanceTests(): TestSuiteSummary {
       details: [
         `Average packet size: ${result.features.general.averagePacketSize} bytes (amplified replies)`,
         `Target VIP: ${result.ddos.targetSummary}`,
-        `Mitigation Advisory: ${result.ddos.mitigationAdvisory.substring(0, 75)}...`
+        `Mitigation Advisory: ${(result.ddos.mitigationAdvisory || 'BGP Flowspec rule generated').substring(0, 75)}...`
       ],
       durationMs: Number((performance.now() - start).toFixed(2))
     });

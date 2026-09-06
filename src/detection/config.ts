@@ -8,8 +8,8 @@ import { BaselineMetrics } from './types';
 export const ENGINE_CONFIG = {
   // Baseline Normal Traffic Profile
   baseline: {
-    baselinePacketsPerSecond: 45000,
-    baselineBytesPerSecond: 280000000, // ~280 MB/s or 2.24 Gbps
+    baselinePacketsPerSecond: 600, // Nominal ingress flow rate for the simulated tap window
+    baselineBytesPerSecond: 420000, // ~420 KB/s or 3.36 Mbps nominal
     baselineEntropy: 3.75, // Normal organic source IP Shannon entropy (3.5 - 4.2)
     baselineDestinationHHI: 0.28, // Normal modest VIP concentration
     baselineProtocolDistribution: {

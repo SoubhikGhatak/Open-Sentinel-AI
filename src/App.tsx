@@ -23,7 +23,8 @@ import {
   SimulationScenario,
   C2BeaconCandidate,
   ThreatIntelligenceRecord,
-  AlertStatus
+  AlertStatus,
+  ThreatType
 } from './types';
 import {
   SIMULATION_SCENARIOS,
@@ -35,6 +36,7 @@ import {
 } from './services/networkSimulator';
 import { DetectionEngineService } from './services/engineService';
 import { generateScenarioFlows } from './detection/simulation/trafficGenerator';
+import { FullAnalysisPipelineResult } from './detection/engine';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -55,6 +57,9 @@ export default function App() {
   });
   const [beacons, setBeacons] = useState<C2BeaconCandidate[]>(INITIAL_C2_BEACONS);
   const [intelRecords] = useState<ThreatIntelligenceRecord[]>(INITIAL_INTEL_RECORDS);
+  const [currentPipeline, setCurrentPipeline] = useState<FullAnalysisPipelineResult>(() =>
+    DetectionEngineService.simulateScenario('normal', 70)
+  );
 
   const [telemetry, setTelemetry] = useState<TelemetryMetrics>({
     monitoringStatus: 'ACTIVE_ONE_WAY',
@@ -83,6 +88,7 @@ export default function App() {
 
     // Run real detection engine analysis for this scenario
     const pipeline = DetectionEngineService.simulateScenario(found.id as any, 70);
+    setCurrentPipeline(pipeline);
     setPackets(pipeline.displayPackets);
 
     // Call server endpoint if available
@@ -97,9 +103,33 @@ export default function App() {
     }
 
     // Prepend alerts generated directly by the real detection engine
-    if (pipeline.alerts.length > 0) {
+    if (pipeline.alerts && pipeline.alerts.length > 0) {
+      const convertedAlerts: SecurityAlert[] = pipeline.alerts.map((a) => ({
+        id: a.id,
+        alertId: a.alertId || a.id,
+        threatType: (a.threatType as ThreatType) || 'SYN Flood',
+        severity: a.severity || 'Critical',
+        confidenceScore: a.confidenceScore ?? a.confidence ?? 95,
+        threatScore: a.threatScore,
+        timestamp: a.timestamp,
+        source: a.source || 'Unknown Ingress Cluster',
+        destination: a.destination || a.target || found.targetService || 'Protected Enclave VIP',
+        protocol: (['TCP', 'UDP', 'ICMP', 'DNS', 'TLS', 'NTP'].includes(a.protocol) ? a.protocol : 'TCP') as any,
+        supportingEvidence: a.supportingEvidence || a.evidence || [
+          `Detected threat event: ${a.threatType}`,
+          'Verified via passive feature extraction'
+        ],
+        detectionMethod: a.detectionMethod || 'Passive Feature Extraction & Ensemble Classifier',
+        recommendedAction: a.recommendedAction,
+        simulationStatus: a.simulationStatus || 'SYNTHETIC_PASSIVE_FLOW',
+        status: a.status || 'New',
+        packetRate: a.packetRate || pipeline.telemetry.packetsPerSecond,
+        bandwidthRate: a.bandwidthRate || `${((pipeline.telemetry.bytesPerSecond * 8) / 1e9).toFixed(2)} Gbps`,
+        mitreTechnique: a.mitreTechnique
+      }));
+
       setAlerts((prev) => {
-        const combined = [...pipeline.alerts, ...prev];
+        const combined = [...convertedAlerts, ...prev];
         const seen = new Set<string>();
         return combined.filter((a) => {
           if (seen.has(a.id)) return false;
@@ -173,6 +203,7 @@ export default function App() {
       // Generate flows and pass through feature extraction & detection pipeline
       const flows = generateScenarioFlows(activeScenario.id as any, 20);
       const pipeline = DetectionEngineService.analyzeFlows(flows, 'SIMULATION');
+      setCurrentPipeline(pipeline);
 
       // Update recent packets display (deduplicate by packet id)
       setPackets((prev) => {
@@ -263,6 +294,7 @@ export default function App() {
             timeline={timeline}
             alerts={alerts}
             activeScenario={activeScenario}
+            pipeline={currentPipeline}
             onNavigateTab={setActiveTab}
             onSelectAlert={handleInvestigateAlert}
           />
@@ -278,11 +310,11 @@ export default function App() {
         )}
 
         {activeTab === 'ddos' && (
-          <DDoSView activeScenario={activeScenario} />
+          <DDoSView activeScenario={activeScenario} pipeline={currentPipeline} />
         )}
 
         {activeTab === 'c2' && (
-          <C2BeaconView beacons={beacons} activeScenario={activeScenario} />
+          <C2BeaconView beacons={beacons} activeScenario={activeScenario} pipeline={currentPipeline} />
         )}
 
         {activeTab === 'intel' && (

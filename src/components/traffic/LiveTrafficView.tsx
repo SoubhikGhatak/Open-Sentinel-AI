@@ -38,11 +38,11 @@ export const LiveTrafficView: React.FC<LiveTrafficViewProps> = ({
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
-        pkt.sourceIp.toLowerCase().includes(q) ||
-        pkt.destIp.toLowerCase().includes(q) ||
-        pkt.protocol.toLowerCase().includes(q) ||
-        String(pkt.sourcePort).includes(q) ||
-        String(pkt.destPort).includes(q)
+        (pkt.sourceIp || '').toLowerCase().includes(q) ||
+        (pkt.destIp || '').toLowerCase().includes(q) ||
+        (pkt.protocol || '').toLowerCase().includes(q) ||
+        String(pkt.sourcePort ?? '').includes(q) ||
+        String(pkt.destPort ?? '').includes(q)
       );
     }
     return true;
@@ -168,7 +168,15 @@ export const LiveTrafficView: React.FC<LiveTrafficViewProps> = ({
                         : 'hover:bg-white/5 text-slate-300'
                     }`}
                   >
-                    <td className="py-2 px-3 text-slate-400 text-[10px]">{pkt.timestamp.split(' ')[1]}</td>
+                    <td className="py-2 px-3 text-slate-400 text-[10px]">
+                      {pkt.timestamp
+                        ? pkt.timestamp.includes(' ')
+                          ? pkt.timestamp.split(' ')?.[1] || pkt.timestamp
+                          : pkt.timestamp.includes('T')
+                          ? pkt.timestamp.split('T')?.[1]?.substring(0, 8) || pkt.timestamp
+                          : pkt.timestamp
+                        : '--:--:--'}
+                    </td>
                     <td className="py-2 px-3 text-slate-200 font-semibold">
                       {pkt.sourceIp}:{pkt.sourcePort}
                     </td>

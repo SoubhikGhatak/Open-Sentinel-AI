@@ -22,45 +22,61 @@ import {
   Cell
 } from 'recharts';
 import { SimulationScenario } from '../../types';
+import { FullAnalysisPipelineResult } from '../../detection/engine';
 
 interface DDoSViewProps {
   activeScenario: SimulationScenario;
+  pipeline?: FullAnalysisPipelineResult;
 }
 
-export const DDoSView: React.FC<DDoSViewProps> = ({ activeScenario }) => {
+export const DDoSView: React.FC<DDoSViewProps> = ({ activeScenario, pipeline }) => {
   const [copiedRule, setCopiedRule] = useState<boolean>(false);
 
-  const isSynAttack = activeScenario.id === 'syn-flood';
-  const isUdpAmp = activeScenario.id === 'udp-amplification';
-  const isSpoofed = activeScenario.id === 'spoofed-source';
+  const isSynAttack = activeScenario.id === 'syn-flood' || pipeline?.ddos?.threatType === 'SYN Flood';
+  const isUdpAmp = activeScenario.id === 'udp-amplification' || pipeline?.ddos?.threatType === 'UDP Reflection/Amplification';
+  const isSpoofed = activeScenario.id === 'spoofed-source' || pipeline?.ddos?.threatType === 'Spoofed Source Flood';
+  const isUdpFlood = activeScenario.id === 'udp-flood' || pipeline?.ddos?.threatType === 'UDP Flood';
+
+  const ddosFeats = pipeline?.features?.ddos;
+  const generalFeats = pipeline?.features?.general;
+  const totalPPS = pipeline?.telemetry?.packetsPerSecond || (activeScenario.activeThreat ? 280000 : 45000);
+  const totalBPS = pipeline?.telemetry?.bytesPerSecond || (totalPPS * 680);
 
   const ddosMetrics = {
-    synFloodIntensity: isSynAttack ? 94 : 6,
-    udpFloodIntensity: isUdpAmp ? 92 : isSpoofed ? 88 : 8,
-    amplificationFactor: isUdpAmp ? 55.4 : 1.2,
-    spoofedEntropyScore: isSpoofed ? 7.84 : isSynAttack ? 6.95 : 3.72,
-    synToAckRatio: isSynAttack ? 48.6 : 1.02,
-    halfOpenSynCount: isSynAttack ? 428000 : 1240,
-    topTargetVips: [
-      { ip: '192.168.10.45:443', name: 'Web Application VIP', pps: isSynAttack ? 385000 : 18000, risk: isSynAttack ? 'CRITICAL' : 'NOMINAL' },
-      { ip: '192.168.20.10:5432', name: 'Core DB Gateway', pps: isUdpAmp ? 290000 : 12000, risk: isUdpAmp ? 'CRITICAL' : 'NOMINAL' },
-      { ip: '192.168.10.1:8080', name: 'API Gateway', pps: isSpoofed ? 175000 : 11000, risk: isSpoofed ? 'HIGH' : 'NOMINAL' },
-      { ip: '192.168.10.50:53', name: 'Internal DNS Primary', pps: 9200, risk: 'NOMINAL' }
-    ],
+    synFloodIntensity: ddosFeats ? Math.round(Math.min(100, (ddosFeats.synPacketRate / 5000) * 100)) : (isSynAttack ? 94 : 6),
+    udpFloodIntensity: generalFeats ? Math.round(generalFeats.protocolPercentages.UDP) : (isUdpAmp ? 92 : isSpoofed ? 88 : isUdpFlood ? 96 : 8),
+    amplificationFactor: isUdpAmp && generalFeats ? Number(Math.max(1.0, generalFeats.averagePacketSize / 64).toFixed(1)) : (isUdpAmp ? 55.4 : 1.0),
+    spoofedEntropyScore: ddosFeats ? ddosFeats.sourceIPEntropy : (isSpoofed ? 7.84 : isSynAttack ? 6.95 : 3.72),
+    synToAckRatio: ddosFeats ? ddosFeats.synToAckRatio : (isSynAttack ? 48.6 : 1.02),
+    halfOpenSynCount: ddosFeats ? ddosFeats.halfOpenEstimate : (isSynAttack ? 428000 : 1240),
+    topTargetVips: ddosFeats && ddosFeats.targetVIPConcentration.length > 0
+      ? ddosFeats.targetVIPConcentration.map((t) => ({
+          ip: `${t.ip}:${isSynAttack ? 443 : isUdpAmp ? 123 : 8080}`,
+          name: t.ip === '192.168.10.45' ? 'Web Application VIP' : t.ip === '192.168.20.10' ? 'Core DB Gateway' : t.ip === '192.168.10.1' ? 'API Gateway' : 'Monitored Service',
+          pps: Math.round(totalPPS * (t.percentage / 100)),
+          risk: t.percentage > 40 && activeScenario.activeThreat ? 'CRITICAL' : t.percentage > 25 ? 'HIGH' : 'NOMINAL'
+        }))
+      : [
+          { ip: '192.168.10.45:443', name: 'Web Application VIP', pps: isSynAttack ? 385000 : 18000, risk: isSynAttack ? 'CRITICAL' : 'NOMINAL' },
+          { ip: '192.168.20.10:5432', name: 'Core DB Gateway', pps: isUdpAmp ? 290000 : 12000, risk: isUdpAmp ? 'CRITICAL' : 'NOMINAL' },
+          { ip: '192.168.10.1:8080', name: 'API Gateway', pps: isSpoofed ? 175000 : 11000, risk: isSpoofed ? 'HIGH' : 'NOMINAL' },
+          { ip: '192.168.10.50:53', name: 'Internal DNS Primary', pps: 9200, risk: 'NOMINAL' }
+        ],
     ampVectors: [
-      { vector: 'NTP Monlist (Port 123)', factor: 55.4, pps: isUdpAmp ? 180000 : 340, color: '#ec4899' },
-      { vector: 'DNS ANY Query (Port 53)', factor: 28.0, pps: isUdpAmp ? 72000 : 1200, color: '#10b981' },
-      { vector: 'Memcached Get (11211)', factor: 4000.0, pps: isUdpAmp ? 41000 : 40, color: '#f59e0b' },
-      { vector: 'SSDP Discover (1900)', factor: 30.8, pps: isUdpAmp ? 17000 : 110, color: '#38bdf8' }
+      { vector: 'NTP Monlist (Port 123)', factor: 55.4, pps: generalFeats?.destinationPortDistribution[123] || (isUdpAmp ? 180000 : 340), color: '#ec4899' },
+      { vector: 'DNS ANY Query (Port 53)', factor: 28.0, pps: generalFeats?.destinationPortDistribution[53] || (isUdpAmp ? 72000 : 1200), color: '#10b981' },
+      { vector: 'Memcached Get (11211)', factor: 4000.0, pps: generalFeats?.destinationPortDistribution[11211] || (isUdpAmp ? 41000 : 40), color: '#f59e0b' },
+      { vector: 'SSDP Discover (1900)', factor: 30.8, pps: generalFeats?.destinationPortDistribution[1900] || (isUdpAmp ? 17000 : 110), color: '#38bdf8' }
     ]
   };
 
-  const sampleBgpFlowspec = `flowspec route {
+  const primaryVictim = ddosMetrics.topTargetVips?.[0]?.ip?.split(':')?.[0] || '192.168.10.45';
+
+  const sampleBgpFlowspec = pipeline?.ddos?.mitigationAdvisory || `flowspec route {
   match {
-    destination 192.168.10.45/32;
-    protocol tcp;
-    tcp-flags "syn & !ack";
-    packet-length > 60;
+    destination ${primaryVictim}/32;
+    protocol ${isSynAttack ? 'tcp' : 'udp'};
+    ${isSynAttack ? 'tcp-flags "syn & !ack";\n    packet-length < 80;' : 'destination-port 123;\n    packet-length > 400;'}
   }
   then {
     rate-limit 50000;

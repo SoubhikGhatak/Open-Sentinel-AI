@@ -438,7 +438,7 @@ export const ForensicsView: React.FC = () => {
               <span className={`text-[10px] uppercase font-bold ${
                 pipelineResult.report.concentration.hhi >= 0.7 ? 'text-red-400' : 'text-emerald-400'
               }`}>
-                {pipelineResult.report.concentration.interpretation.split('-')[0]}
+                {String(pipelineResult?.report?.concentration?.interpretation || 'Distributed').split('-')[0]}
               </span>
             </div>
             <div className="space-y-2">

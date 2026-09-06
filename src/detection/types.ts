@@ -192,12 +192,15 @@ export interface NormalizedAlert {
   threatType: string;
   severity: 'Critical' | 'High' | 'Medium' | 'Low';
   confidence: number;
+  confidenceScore?: number;
   threatScore: number;
   source: string;
   target: string;
+  destination?: string;
   protocol: ProtocolType;
   detectionMethod: string;
   evidence: string[];
+  supportingEvidence?: string[];
   features: Record<string, number | string>;
   recommendedAction: string;
   simulationStatus: string;

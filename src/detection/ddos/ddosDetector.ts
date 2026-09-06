@@ -22,21 +22,40 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
 
   // ==========================================
   // 1. SYN FLOOD DETECTION LOGIC
+  // Multi-signal: severe SYN/ACK imbalance + high SYN rate + destination VIP concentration
   // ==========================================
-  const synRateExceeded = ddos.synPacketRate > (ENGINE_CONFIG.baseline.baselinePacketsPerSecond * 0.5);
-  const synAckImbalanced = ddos.synToAckRatio >= ENGINE_CONFIG.ddos.synToAckImbalanceRatio;
-  const synRateSurge = ddos.ppsDeviationFromBaseline >= ENGINE_CONFIG.ddos.synRateMultiplierThreshold;
-  const targetConcentrated = ddos.destinationConcentrationHHI >= ENGINE_CONFIG.concentration.moderateConcentration;
+  const totalUdpPercentage =
+    (general.protocolPercentages.UDP || 0) +
+    (general.protocolPercentages.NTP || 0) +
+    (general.protocolPercentages.DNS || 0) +
+    (general.protocolPercentages.SSDP || 0);
 
-  if (synRateExceeded && (synAckImbalanced || (synRateSurge && targetConcentrated))) {
-    let confidence = 75;
+  const targetConcentrated =
+    ddos.destinationConcentrationHHI >= ENGINE_CONFIG.concentration.moderateConcentration ||
+    primaryTarget.percentage >= 60;
+
+  const synAckImbalanced =
+    ddos.synToAckRatio >= ENGINE_CONFIG.ddos.synToAckImbalanceRatio ||
+    (ddos.halfOpenEstimate >= 50 && general.protocolPercentages.TCP > 70);
+
+  const synRateExceeded =
+    ddos.synPacketRate >= 500 ||
+    ddos.synPacketRate > (ENGINE_CONFIG.baseline.baselinePacketsPerSecond * 0.5) ||
+    ddos.ppsDeviationFromBaseline >= 1.5;
+
+  const synRateSurge =
+    ddos.ppsDeviationFromBaseline >= ENGINE_CONFIG.ddos.synRateMultiplierThreshold ||
+    ddos.synPacketRate >= 1500;
+
+  if (synAckImbalanced && (synRateExceeded || synRateSurge) && targetConcentrated) {
+    let confidence = 82;
     const evidence: string[] = [];
 
     evidence.push(`SYN arrival rate: ${ddos.synPacketRate.toLocaleString()} pps (${ddos.ppsDeviationFromBaseline}x baseline volume)`);
 
     if (synAckImbalanced) {
       evidence.push(`Severe SYN/ACK imbalance observed: ratio ${ddos.synToAckRatio}:1 (half-open connection buildup)`);
-      confidence += 15;
+      confidence += 10;
     }
 
     if (targetConcentrated) {
@@ -46,7 +65,7 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
 
     if (ddos.sourceIPEntropy > 5.5) {
       evidence.push(`Source IP Shannon entropy: ${ddos.sourceIPEntropy} across ${ddos.sourceIPCount.toLocaleString()} unique source IPs`);
-      confidence += 4;
+      confidence += 2;
     }
 
     confidence = Math.min(99, confidence);
@@ -73,7 +92,7 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
 
   // ==========================================
   // 2. UDP REFLECTION & AMPLIFICATION LOGIC
-  // Multi-signal: port + large response payload + high bandwidth + concentration
+  // Multi-signal: port + large response payload (>750B) + UDP datagram surge + victim concentration
   // ==========================================
   const udpPortMap = general.destinationPortDistribution;
   let reflectionPortMatched = false;
@@ -84,26 +103,38 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
     if (udpPortMap[port] && udpPortMap[port] > 10) {
       reflectionPortMatched = true;
       matchedPort = port;
-      matchedProtoName = port === 123 ? 'NTP Monlist' : port === 53 ? 'DNS ANY' : port === 11211 ? 'Memcached' : port === 1900 ? 'SSDP' : 'UDP Service';
+      matchedProtoName =
+        port === 123
+          ? 'NTP Monlist'
+          : port === 53
+          ? 'DNS ANY'
+          : port === 11211
+          ? 'Memcached'
+          : port === 1900
+          ? 'SSDP'
+          : 'UDP Service';
       break;
     }
   }
 
-  const isLargeUdpPayload = general.averagePacketSize > 900; // Reflected replies are typically MTU-sized (1200-1450 B)
-  const isUdpVolumeSurge = ddos.udpPacketRate > (ENGINE_CONFIG.baseline.baselinePacketsPerSecond * 0.4) || general.protocolPercentages.UDP > 55 || general.protocolPercentages.NTP > 30;
+  const isLargeUdpPayload = general.averagePacketSize > 750; // Reflected replies are typically MTU-sized (1200-1450 B)
+  const isUdpVolumeSurge =
+    totalUdpPercentage >= 50 ||
+    ddos.udpPacketRate >= 500 ||
+    ddos.udpPacketRate > (ENGINE_CONFIG.baseline.baselinePacketsPerSecond * 0.4);
 
   // We require behavioral signals: large payload + surge + reflection port + concentration
-  if (reflectionPortMatched && isLargeUdpPayload && isUdpVolumeSurge) {
-    let confidence = 82;
+  if (reflectionPortMatched && isLargeUdpPayload && isUdpVolumeSurge && targetConcentrated) {
+    let confidence = 85;
     const evidence: string[] = [];
 
     evidence.push(`Observed asymmetric inbound UDP payload size: ${general.averagePacketSize} bytes/pkt (high amplification profile)`);
     evidence.push(`Service reflection vector: Port ${matchedPort} (${matchedProtoName}) concentrated traffic`);
-    evidence.push(`UDP rate surge: ${ddos.udpPacketRate.toLocaleString()} pps accounting for ${general.protocolPercentages.UDP + general.protocolPercentages.NTP}% of ingress datagrams`);
+    evidence.push(`UDP rate surge: ${ddos.udpPacketRate.toLocaleString()} pps accounting for ${totalUdpPercentage}% of ingress datagrams`);
 
     if (targetConcentrated) {
       evidence.push(`Victim concentration: HHI ${ddos.destinationConcentrationHHI} focused on ${primaryTarget.ip}`);
-      confidence += 12;
+      confidence += 10;
     }
 
     confidence = Math.min(98, confidence);
@@ -130,23 +161,27 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
 
   // ==========================================
   // 3. SPOOFED-SOURCE FLOOD LOGIC
-  // High entropy + high unique source ratio + target concentration + high rate
+  // High entropy (>6.0) + high unique source count + target concentration + not reflection
   // ==========================================
-  const isHighEntropy = ddos.sourceIPEntropy >= ENGINE_CONFIG.ddos.spoofedEntropyMin;
-  const isHighDiversity = ddos.uniqueSourceRatio >= ENGINE_CONFIG.ddos.spoofedUniqueSourceRatio || ddos.sourceIPCount > 100;
-  const isVolumetric = ddos.ppsDeviationFromBaseline >= 2.0;
+  const isHighEntropy =
+    ddos.sourceIPEntropy >= 6.0 ||
+    ddos.sourceIPEntropy >= ENGINE_CONFIG.entropy.highThreshold;
+  const isHighDiversity =
+    ddos.sourceIPCount >= 40 &&
+    (ddos.uniqueSourceRatio >= 0.015 || ddos.sourceIPCount > 70);
+  const isVolumetric = ddos.ppsDeviationFromBaseline >= 1.5 || ddos.synPacketRate >= 500 || ddos.udpPacketRate >= 500;
 
-  if (isHighEntropy && isHighDiversity && (isVolumetric || targetConcentrated)) {
-    let confidence = 78;
+  if (isHighEntropy && isHighDiversity && targetConcentrated && !isLargeUdpPayload) {
+    let confidence = 80;
     const evidence: string[] = [];
 
     evidence.push(`Source IP Shannon entropy spiked to ${ddos.sourceIPEntropy} / 8.0 (baseline ${ENGINE_CONFIG.baseline.baselineEntropy})`);
-    evidence.push(`Source dispersion anomaly: ${(ddos.uniqueSourceRatio * 100).toFixed(1)}% of packets originate from unique individual source IPs`);
+    evidence.push(`Source dispersion anomaly: ${(ddos.uniqueSourceRatio * 100).toFixed(1)}% unique source ratio across ${ddos.sourceIPCount.toLocaleString()} distinct source IPs`);
     evidence.push(`Total unique sources: ${ddos.sourceIPCount.toLocaleString()} with negligible packet persistence`);
 
     if (targetConcentrated) {
       evidence.push(`Targeted VIP convergence: HHI ${ddos.destinationConcentrationHHI} on ${primaryTarget.ip}`);
-      confidence += 14;
+      confidence += 12;
     }
 
     confidence = Math.min(97, confidence);
@@ -174,9 +209,18 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
   // 4. GENERIC UDP FLOOD LOGIC
   // High UDP rate + protocol dominance + destination concentration
   // ==========================================
-  const isUdpDominated = general.protocolPercentages.UDP > 65 || ddos.udpPacketRate > (ENGINE_CONFIG.baseline.baselinePacketsPerSecond * 2.5);
-  if (isUdpDominated && ddos.ppsDeviationFromBaseline >= ENGINE_CONFIG.ddos.udpRateMultiplierThreshold) {
-    let confidence = 72;
+  const isUdpDominated =
+    general.protocolPercentages.UDP > 60 ||
+    totalUdpPercentage > 75 ||
+    ddos.udpPacketRate >= 1000;
+
+  const isUdpRateSurge =
+    ddos.udpPacketRate >= 1000 ||
+    ddos.ppsDeviationFromBaseline >= ENGINE_CONFIG.ddos.udpRateMultiplierThreshold ||
+    general.packetsPerSecond >= 1000;
+
+  if (isUdpDominated && isUdpRateSurge && targetConcentrated && !isLargeUdpPayload) {
+    let confidence = 75;
     const evidence: string[] = [];
 
     evidence.push(`UDP packet rate: ${ddos.udpPacketRate.toLocaleString()} pps (${ddos.ppsDeviationFromBaseline}x above baseline)`);
@@ -187,7 +231,7 @@ export function detectDDoSThreats(features: FlowFeatures): DDoSThreatResult {
       confidence += 15;
     }
 
-    confidence = Math.min(95, confidence);
+    confidence = Math.min(96, confidence);
 
     return {
       detected: true,

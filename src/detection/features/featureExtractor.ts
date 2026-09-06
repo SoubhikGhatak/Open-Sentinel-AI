@@ -104,16 +104,40 @@ export function extractFlowFeatures(
   const uniqueSourceIps = new Set(sourceIps).size;
   const uniqueDestIps = new Set(destIps).size;
 
+  const protocolList: ProtocolType[] = ['TCP', 'UDP', 'ICMP', 'DNS', 'TLS', 'NTP', 'SSDP', 'OTHER'];
   const protocolPercentages: Record<ProtocolType, number> = {
-    TCP: totalPackets > 0 ? Number(((protoCounts.TCP / totalPackets) * 100).toFixed(1)) : 0,
-    UDP: totalPackets > 0 ? Number(((protoCounts.UDP / totalPackets) * 100).toFixed(1)) : 0,
-    ICMP: totalPackets > 0 ? Number(((protoCounts.ICMP / totalPackets) * 100).toFixed(1)) : 0,
-    DNS: totalPackets > 0 ? Number(((protoCounts.DNS / totalPackets) * 100).toFixed(1)) : 0,
-    TLS: totalPackets > 0 ? Number(((protoCounts.TLS / totalPackets) * 100).toFixed(1)) : 0,
-    NTP: totalPackets > 0 ? Number(((protoCounts.NTP / totalPackets) * 100).toFixed(1)) : 0,
-    SSDP: totalPackets > 0 ? Number(((protoCounts.SSDP / totalPackets) * 100).toFixed(1)) : 0,
-    OTHER: totalPackets > 0 ? Number(((protoCounts.OTHER / totalPackets) * 100).toFixed(1)) : 0
+    TCP: 0,
+    UDP: 0,
+    ICMP: 0,
+    DNS: 0,
+    TLS: 0,
+    NTP: 0,
+    SSDP: 0,
+    OTHER: 0
   };
+
+  if (totalPackets > 0) {
+    let runningSum = 0;
+    let dominantProto: ProtocolType = 'TCP';
+    let highestCount = -1;
+
+    for (const proto of protocolList) {
+      const count = protoCounts[proto] || 0;
+      const pct = Number(((count / totalPackets) * 100).toFixed(1));
+      protocolPercentages[proto] = pct;
+      runningSum += pct;
+      if (count > highestCount) {
+        highestCount = count;
+        dominantProto = proto;
+      }
+    }
+
+    // Mathematically balance any floating point / toFixed(1) residual so sum is exactly 100.0%
+    const residual = Number((100.0 - runningSum).toFixed(1));
+    if (residual !== 0 && highestCount > 0) {
+      protocolPercentages[dominantProto] = Number((protocolPercentages[dominantProto] + residual).toFixed(1));
+    }
+  }
 
   const topPorts = Array.from(portCounts.entries())
     .map(([port, count]) => ({

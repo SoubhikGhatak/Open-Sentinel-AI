@@ -32,12 +32,14 @@ import {
   SecurityAlert,
   SimulationScenario
 } from '../../types';
+import { FullAnalysisPipelineResult } from '../../detection/engine';
 
 interface DashboardViewProps {
   telemetry: TelemetryMetrics;
   timeline: TrafficTimePoint[];
   alerts: SecurityAlert[];
   activeScenario: SimulationScenario;
+  pipeline?: FullAnalysisPipelineResult;
   onNavigateTab: (tab: any) => void;
   onSelectAlert: (alert: SecurityAlert) => void;
 }
@@ -56,25 +58,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   timeline,
   alerts,
   activeScenario,
+  pipeline,
   onNavigateTab,
   onSelectAlert
 }) => {
-  // Protocol breakdown calculation
-  const latestPoint = timeline[timeline.length - 1] || {
-    tcpPPS: 28000,
-    udpPPS: 12000,
-    icmpPPS: 1500,
-    otherPPS: 4500,
-    totalPPS: 46000
+  // Protocol breakdown calculation from real simulation features
+  const proto = pipeline?.features?.general?.protocolPercentages || {
+    TCP: 65.0,
+    UDP: 22.0,
+    TLS: 8.0,
+    DNS: 3.0,
+    NTP: 1.0,
+    ICMP: 1.0,
+    SSDP: 0.0,
+    OTHER: 0.0
   };
 
+  const totalPPS = telemetry.packetsPerSecond || 1;
+
   const protocolData = [
-    { name: 'TCP (Streams)', value: latestPoint.tcpPPS, color: PROTOCOL_COLORS.TCP },
-    { name: 'UDP (Datagrams)', value: latestPoint.udpPPS, color: PROTOCOL_COLORS.UDP },
-    { name: 'DNS (Queries)', value: Math.floor(latestPoint.otherPPS * 0.4), color: PROTOCOL_COLORS.DNS },
-    { name: 'TLS (Encrypted)', value: Math.floor(latestPoint.otherPPS * 0.45), color: PROTOCOL_COLORS.TLS },
-    { name: 'ICMP/NTP', value: latestPoint.icmpPPS + Math.floor(latestPoint.otherPPS * 0.15), color: PROTOCOL_COLORS.ICMP }
-  ];
+    { name: 'TCP (Streams)', value: Math.round(totalPPS * (proto.TCP / 100)), percentage: proto.TCP, color: PROTOCOL_COLORS.TCP },
+    { name: 'UDP (Datagrams)', value: Math.round(totalPPS * (proto.UDP / 100)), percentage: proto.UDP, color: PROTOCOL_COLORS.UDP },
+    { name: 'DNS (Queries)', value: Math.round(totalPPS * (proto.DNS / 100)), percentage: proto.DNS, color: PROTOCOL_COLORS.DNS },
+    { name: 'TLS (Encrypted)', value: Math.round(totalPPS * (proto.TLS / 100)), percentage: proto.TLS, color: PROTOCOL_COLORS.TLS },
+    { name: 'NTP (Time Sync)', value: Math.round(totalPPS * (proto.NTP / 100)), percentage: proto.NTP, color: PROTOCOL_COLORS.NTP },
+    { name: 'ICMP / Other', value: Math.round(totalPPS * (((proto.ICMP || 0) + (proto.SSDP || 0) + (proto.OTHER || 0)) / 100)), percentage: Number(((proto.ICMP || 0) + (proto.SSDP || 0) + (proto.OTHER || 0)).toFixed(1)), color: PROTOCOL_COLORS.ICMP }
+  ].filter((p) => p.percentage > 0 || p.value > 0);
 
   // Severity counts
   const severityCounts = {
@@ -122,9 +131,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-[9px] uppercase font-mono text-slate-500 tracking-wider">Ingress Latency</div>
             <div className="font-mono-code font-bold text-blue-400 text-sm">{telemetry.pipelineLatencyMs} ms</div>
           </div>
-          <div className="bg-[#050508] px-3 py-1.5 rounded border border-slate-800 text-center">
-            <div className="text-[9px] uppercase font-mono text-slate-500 tracking-wider">ML Inference</div>
-            <div className="font-mono-code font-bold text-purple-400 text-sm">{telemetry.mlInferenceLatencyMs} ms</div>
+          <div className="bg-[#050508] px-3 py-1.5 rounded border border-slate-800 text-center" title="Ensemble statistical & behavioral detection active. Python ML inference socket ready.">
+            <div className="text-[9px] uppercase font-mono text-slate-500 tracking-wider">Detection Engine</div>
+            <div className="font-mono-code font-bold text-purple-400 text-xs">Statistical Ensemble</div>
           </div>
           <div className="bg-[#050508] px-3 py-1.5 rounded border border-slate-800 text-center">
             <div className="text-[9px] uppercase font-mono text-slate-500 tracking-wider">Reverse Tx Egress</div>
@@ -174,7 +183,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {telemetry.activeThreatsCount}
           </div>
           <div className="text-xs text-red-400 font-mono mt-1 truncate">
-            {activeScenario.activeThreat ? activeScenario.activeThreat.split(' ')[0] : 'Normal Flow'}
+            {activeScenario?.activeThreat ? activeScenario.activeThreat.split(' ')[0] : 'Normal Flow'}
           </div>
         </div>
 
@@ -321,10 +330,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div key={item.name} className="flex items-center justify-between text-slate-300">
                 <span className="flex items-center gap-1.5 truncate">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-[10px] truncate">{item.name.split(' ')[0]}</span>
+                  <span className="text-[10px] truncate">{(item.name || '').split(' ')[0]}</span>
                 </span>
                 <span className="text-slate-400 text-[10px] font-mono">
-                  {((item.value / (latestPoint.totalPPS || 1)) * 100).toFixed(0)}%
+                  {item.percentage.toFixed(1)}%
                 </span>
               </div>
             ))}
@@ -541,7 +550,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </td>
                   <td className="py-2.5 px-4 text-blue-400 font-bold">{alert.confidenceScore}%</td>
                   <td className="py-2.5 px-4 text-slate-400 truncate max-w-xs font-sans">
-                    <span className="text-slate-200">{alert.source.split(' ')[0]}</span> → {alert.destination.split(' ')[0]}
+                    <span className="text-slate-200">{(alert.source || 'Unknown').split(' ')[0]}</span> → {((alert.destination || (alert as any).target) || 'Protected VIP').split(' ')[0]}
                   </td>
                   <td className="py-2.5 px-4 text-slate-400 truncate max-w-xs font-sans">
                     {alert.detectionMethod}

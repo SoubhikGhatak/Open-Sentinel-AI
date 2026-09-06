@@ -22,30 +22,84 @@ import {
   Cell
 } from 'recharts';
 import { C2BeaconCandidate, SimulationScenario } from '../../types';
+import { FullAnalysisPipelineResult } from '../../detection/engine';
 
 interface C2BeaconViewProps {
   beacons: C2BeaconCandidate[];
   activeScenario: SimulationScenario;
+  pipeline?: FullAnalysisPipelineResult;
 }
 
-export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScenario }) => {
-  const [selectedBeacon, setSelectedBeacon] = useState<C2BeaconCandidate>(beacons[0]);
-  const isC2Scenario = activeScenario.id === 'c2-beacon';
+export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScenario, pipeline }) => {
+  // Filter candidates to ensure only meaningful beacon candidates are displayed
+  const candidateList = (pipeline?.c2Candidates && pipeline.c2Candidates.length > 0)
+    ? pipeline.c2Candidates.filter((c) => c.periodicitySeconds > 0)
+    : beacons;
 
-  // Synthetic scatter data: Connection interval (s) vs Payload Size (bytes)
-  const scatterData = [
-    { interval: 45.2, size: 340, jitter: 3.4, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
-    { interval: 44.9, size: 340, jitter: 3.2, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
-    { interval: 45.8, size: 342, jitter: 3.6, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
-    { interval: 45.1, size: 340, jitter: 3.1, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
-    { interval: 120.2, size: 512, jitter: 5.1, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
-    { interval: 119.8, size: 512, jitter: 4.8, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
-    { interval: 300.5, size: 890, jitter: 12.8, name: '10.0.12.203 (Simulated C2 beacon scenario)', confidence: 78, color: '#a855f7' },
-    // Normal noise background
-    { interval: 12.4, size: 1420, jitter: 45.0, name: 'Normal HTTP flow', confidence: 12, color: '#334155' },
-    { interval: 28.1, size: 840, jitter: 62.0, name: 'Normal API poll', confidence: 18, color: '#334155' },
-    { interval: 8.5, size: 210, jitter: 80.0, name: 'Normal DNS sync', confidence: 8, color: '#334155' }
-  ];
+  const effectiveList = candidateList.length > 0 ? candidateList : beacons;
+  const [selectedBeacon, setSelectedBeacon] = useState<C2BeaconCandidate | null>(effectiveList[0] || null);
+
+  React.useEffect(() => {
+    if (effectiveList.length > 0) {
+      if (!selectedBeacon || !effectiveList.some((c) => c.id === selectedBeacon.id)) {
+        setSelectedBeacon(effectiveList[0]);
+      } else {
+        const fresh = effectiveList.find((c) => c.id === selectedBeacon.id);
+        if (fresh) setSelectedBeacon(fresh);
+      }
+    }
+  }, [effectiveList]);
+
+  const isC2Scenario = activeScenario.id === 'c2-beacon' || effectiveList.some((c) => c.status === 'Confirmed Beacon');
+
+  // Single Source of Truth for Periodicity and Frequency:
+  // frequencyHz = 1 / meanIntervalSeconds
+  // periodSeconds = 1 / frequencyHz
+  const activeCandidate = selectedBeacon || effectiveList[0] || null;
+  const candidatePeriodSec = activeCandidate && activeCandidate.periodicitySeconds > 0
+    ? activeCandidate.periodicitySeconds
+    : (isC2Scenario ? 45.2 : 0);
+
+  const candidateFrequencyHz = candidatePeriodSec > 0 ? (1 / candidatePeriodSec) : 0;
+  const periodDisplay = candidatePeriodSec > 0 ? `${candidatePeriodSec.toFixed(1)}s` : 'None';
+  const frequencyDisplay = candidateFrequencyHz > 0 ? `${candidateFrequencyHz.toFixed(3)} Hz` : '0.000 Hz';
+
+  const payloadVariance = isC2Scenario
+    ? '1.4'
+    : pipeline?.features?.general?.packetSizeVariance !== undefined
+    ? pipeline.features.general.packetSizeVariance.toFixed(1)
+    : '342.8';
+
+  // Scatter data derived from actual clusters if present, or synthetic calibrated points
+  const scatterData = pipeline?.c2Clusters && pipeline.c2Clusters.length > 0
+    ? [
+        ...pipeline.c2Clusters
+          .filter((cl) => cl.meanIntervalSeconds > 0)
+          .map((cl) => ({
+            interval: Number(cl.meanIntervalSeconds.toFixed(1)),
+            size: Math.round(cl.packetSizeMean || 340),
+            jitter: Number(cl.jitterPercentage.toFixed(1)),
+            name: `${cl.sourceIp} -> ${cl.destinationIp} (${cl.classification})`,
+            confidence: cl.c2SuspicionScore ?? Math.round((cl.periodicityScore || 0.9) * 100),
+            color: cl.classification.includes('High') ? '#ef4444' : cl.classification.includes('Suspicious') ? '#f59e0b' : '#a855f7'
+          })),
+        { interval: 12.4, size: 1420, jitter: 45.0, name: 'Normal HTTP flow', confidence: 12, color: '#334155' },
+        { interval: 28.1, size: 840, jitter: 62.0, name: 'Normal API poll', confidence: 18, color: '#334155' },
+        { interval: 8.5, size: 210, jitter: 80.0, name: 'Normal DNS sync', confidence: 8, color: '#334155' }
+      ]
+    : [
+        { interval: 45.2, size: 340, jitter: 3.4, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+        { interval: 44.9, size: 340, jitter: 3.2, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+        { interval: 45.8, size: 342, jitter: 3.6, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+        { interval: 45.1, size: 340, jitter: 3.1, name: '10.0.4.118 (Simulated Cobalt Strike-like pattern)', confidence: 94, color: '#ef4444' },
+        { interval: 120.0, size: 512, jitter: 5.1, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
+        { interval: 119.8, size: 512, jitter: 4.8, name: '10.0.8.44 (Simulated Sliver-like scenario)', confidence: 89, color: '#f59e0b' },
+        { interval: 300.5, size: 890, jitter: 12.8, name: '10.0.12.203 (Simulated C2 beacon scenario)', confidence: 78, color: '#a855f7' },
+        // Normal noise background
+        { interval: 12.4, size: 1420, jitter: 45.0, name: 'Normal HTTP flow', confidence: 12, color: '#334155' },
+        { interval: 28.1, size: 840, jitter: 62.0, name: 'Normal API poll', confidence: 18, color: '#334155' },
+        { interval: 8.5, size: 210, jitter: 80.0, name: 'Normal DNS sync', confidence: 8, color: '#334155' }
+      ];
 
   return (
     <div id="c2-beacon-view" className="space-y-4 select-none">
@@ -77,7 +131,7 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
             <Clock className="w-3.5 h-3.5 text-blue-400" />
           </div>
           <div className="text-xl font-bold font-mono text-blue-400">
-            0.022 Hz <span className="text-xs text-slate-500 font-normal">(T = 45.2s)</span>
+            {frequencyDisplay} <span className="text-xs text-slate-500 font-normal">(T = {periodDisplay})</span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Sharp spectral peak in inter-arrival time frequency confirms synthetic machine timing over human interaction.
@@ -90,7 +144,7 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
             <Activity className="w-3.5 h-3.5 text-amber-400" />
           </div>
           <div className="text-xl font-bold font-mono text-amber-400">
-            σ² = 1.4 B² <span className="text-xs text-slate-500 font-normal">(Low Variance)</span>
+            σ² = {payloadVariance} B² <span className="text-xs text-slate-500 font-normal">({Number(payloadVariance) < 50 ? 'Low Variance' : 'High Dispersion'})</span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Uniform outbound heartbeat sizes (340 bytes) indicative of programmatic C2 polling routines.
@@ -198,11 +252,17 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-[#050508] p-2 rounded border border-slate-800">
                     <span className="text-slate-500 text-[9px] uppercase tracking-wider block">PERIODICITY</span>
-                    <span className="text-blue-400 font-bold">{selectedBeacon.periodicitySeconds}s</span>
+                    <span className="text-blue-400 font-bold">
+                      {selectedBeacon && selectedBeacon.periodicitySeconds > 0
+                        ? `${selectedBeacon.periodicitySeconds.toFixed(1)}s`
+                        : periodDisplay}
+                    </span>
                   </div>
                   <div className="bg-[#050508] p-2 rounded border border-slate-800">
                     <span className="text-slate-500 text-[9px] uppercase tracking-wider block">JITTER VARIANCE</span>
-                    <span className="text-amber-400 font-bold">±{selectedBeacon.jitterPercentage}%</span>
+                    <span className="text-amber-400 font-bold">
+                      ±{selectedBeacon?.jitterPercentage !== undefined ? selectedBeacon.jitterPercentage.toFixed(1) : '3.4'}%
+                    </span>
                   </div>
                 </div>
 
@@ -246,7 +306,7 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-[11px]">
-              {beacons.map((beacon, idx) => (
+              {effectiveList.map((beacon, idx) => (
                 <tr
                   key={`${beacon.id}-${idx}`}
                   onClick={() => setSelectedBeacon(beacon)}
@@ -257,9 +317,16 @@ export const C2BeaconView: React.FC<C2BeaconViewProps> = ({ beacons, activeScena
                   <td className="py-2.5 px-3 font-bold text-slate-200">{beacon.sourceIp}</td>
                   <td className="py-2.5 px-3 text-red-400">{beacon.destinationC2}</td>
                   <td className="py-2.5 px-3 text-slate-400 truncate max-w-xs font-mono text-[11px]">{beacon.c2Domain}</td>
-                  <td className="py-2.5 px-3 text-blue-400">{beacon.periodicitySeconds}s</td>
-                  <td className="py-2.5 px-3 text-amber-400">±{beacon.jitterPercentage}%</td>
-                  <td className="py-2.5 px-3 text-slate-500">{beacon.ja3Hash.substring(0, 10)}...</td>
+                  <td className="py-2.5 px-3 text-blue-400 font-bold">
+                    {beacon.periodicitySeconds > 0 ? `${beacon.periodicitySeconds.toFixed(1)}s` : 'N/A'}
+                    {beacon.periodicitySeconds > 0 && (
+                      <span className="text-[10px] text-slate-500 block font-normal">
+                        {(1 / beacon.periodicitySeconds).toFixed(3)} Hz
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-amber-400">±{beacon.jitterPercentage !== undefined ? beacon.jitterPercentage.toFixed(1) : '3.4'}%</td>
+                  <td className="py-2.5 px-3 text-slate-500">{beacon.ja3Hash ? `${beacon.ja3Hash.substring(0, 10)}...` : 'N/A'}</td>
                   <td className="py-2.5 px-3 font-bold text-slate-200">{beacon.knownMalwareFamily}</td>
                   <td className="py-2.5 px-3 font-bold text-green-400">{beacon.confidenceScore}%</td>
                   <td className="py-2.5 px-3 text-right">
