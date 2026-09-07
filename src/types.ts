@@ -16,6 +16,7 @@ export interface SecurityAlert {
   alertId?: string;
   threatType: ThreatType;
   severity: Severity;
+  riskLevel?: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
   confidenceScore: number; // e.g. 96 (%)
   threatScore?: number; // 0 - 100
   timestamp: string;
@@ -23,6 +24,7 @@ export interface SecurityAlert {
   destination: string;
   protocol: 'TCP' | 'UDP' | 'ICMP' | 'DNS' | 'TLS' | 'NTP';
   supportingEvidence: string[];
+  evidence?: string[];
   detectionMethod: string;
   recommendedAction?: string;
   simulationStatus?: string; // e.g. "SIMULATED SCENARIO" | "PCAP ANALYSIS" | "FLOW ANALYSIS"
@@ -31,6 +33,7 @@ export interface SecurityAlert {
   bandwidthRate?: string; // e.g. "14.2 Gbps"
   mitreTechnique?: string;
   notes?: string;
+  features?: Record<string, any>;
 }
 
 export interface NetworkPacket {
@@ -96,16 +99,53 @@ export interface C2BeaconCandidate {
   sourceIp: string;
   destinationC2: string;
   c2Domain: string;
+  destinationPort?: number;
+  protocol?: string;
   periodicitySeconds: number;
+  meanIntervalSeconds?: number;
+  stdDevIntervalSeconds?: number;
+  coefficientOfVariation?: number; // CV = stdDev / mean
   jitterPercentage: number; // e.g. 4.2%
+  connectionFrequencyHz?: number;
+  destinationConcentration?: number; // 0.0 - 1.0
+  packetSizeConsistency?: number; // 0.0 - 1.0
+  packetSizeMean?: number;
+  packetSizeStdDev?: number;
   confidenceScore: number;
+  c2Confidence?: number;
+  severity?: 'Critical' | 'High' | 'Medium' | 'Low';
+  classification?: string;
   ja3Hash: string;
   knownMalwareFamily: string; // e.g., "Cobalt Strike", "Sliver C2", "Brute Ratel"
   beaconCount: number;
+  connectionCount?: number;
   firstSeen: string;
   lastSeen: string;
-  status: 'Confirmed Beacon' | 'Suspected' | 'Under Observation';
+  status: 'Confirmed Beacon' | 'Suspected' | 'Under Observation' | 'Benign Periodic Service';
   fftPeakPower: number;
+  evidence?: string[];
+  scoreBreakdown?: {
+    periodicityContrib: number;
+    iatRegularityContrib: number;
+    destinationRepetitionContrib: number;
+    connectionFreqContrib: number;
+    packetSizeConsistencyContrib: number;
+    [key: string]: number;
+  };
+  timelineEvents?: {
+    id: string;
+    timestamp: string;
+    timestampMs: number;
+    sourceIp: string;
+    destinationIp: string;
+    destinationPort: number;
+    bytes: number;
+    intervalSeconds: number;
+  }[];
+  iatDistribution?: number[];
+  packetSizes?: number[];
+  isBenignPeriodicService?: boolean;
+  benignServiceReason?: string;
 }
 
 export interface ThreatIntelligenceRecord {

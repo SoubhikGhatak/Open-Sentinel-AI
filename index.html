@@ -4,6 +4,52 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OneWaySentinel AI</title>
+    <script>
+      // Gracefully handle development WebSocket connections in sandboxed AI Studio preview
+      (function() {
+        if (typeof window !== 'undefined' && window.WebSocket) {
+          var OriginalWebSocket = window.WebSocket;
+          window.WebSocket = function(url, protocols) {
+            var urlStr = String(url || '');
+            var protoStr = String(protocols || '');
+            if (protoStr.indexOf('vite') !== -1 || urlStr.indexOf('token=') !== -1 || urlStr.indexOf('vite') !== -1) {
+              return {
+                readyState: 1,
+                send: function() {},
+                close: function() {},
+                addEventListener: function(event, handler) {
+                  if (event === 'open') {
+                    setTimeout(function() {
+                      try { handler({ type: 'open' }); } catch(e) {}
+                    }, 0);
+                  }
+                },
+                removeEventListener: function() {}
+              };
+            }
+            return new OriginalWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OriginalWebSocket.prototype;
+        }
+        var isViteWs = function(err) {
+          if (!err) return false;
+          var str = String(err.message || err.reason || err || '');
+          return str.indexOf('WebSocket') !== -1 || str.indexOf('vite') !== -1 || str.indexOf('websocket') !== -1 || str.indexOf('without opened') !== -1;
+        };
+        window.addEventListener('unhandledrejection', function(event) {
+          if (isViteWs(event.reason)) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('error', function(event) {
+          if (isViteWs(event.error) || isViteWs(event.message)) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
     <meta name="description" content="Passive AI-powered cybersecurity threat detection & intelligence platform with physical data-diode one-way monitoring architecture." />
     <meta property="og:title" content="OneWaySentinel AI" />
     <meta property="og:description" content="Passive AI-powered cybersecurity threat detection & intelligence platform with physical data-diode one-way monitoring architecture." />

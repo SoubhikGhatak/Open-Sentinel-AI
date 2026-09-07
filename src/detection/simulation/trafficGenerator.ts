@@ -18,6 +18,14 @@ export type SimulationScenarioId =
   | 'normal'
   | 'baseline'
   | 'NORMAL_BASELINE'
+  | 'c2-periodic'
+  | 'C2_PERIODIC'
+  | 'c2-jittered'
+  | 'C2_JITTERED'
+  | 'c2-high-freq'
+  | 'C2_HIGH_FREQ'
+  | 'c2-low-freq'
+  | 'C2_LOW_FREQ'
   | 'syn-flood'
   | 'SYN_FLOOD'
   | 'udp-flood'
@@ -40,11 +48,15 @@ let globalFlowSeq = 0;
 export function normalizeScenarioId(id: string): string {
   const clean = id.toUpperCase().replace(/-/g, '_');
   if (clean === 'NORMAL' || clean === 'BASELINE' || clean === 'NORMAL_BASELINE') return 'NORMAL_BASELINE';
+  if (clean === 'C2_PERIODIC' || clean === 'C2_PERIODIC_BEACONING') return 'C2_PERIODIC';
+  if (clean === 'C2_JITTERED' || clean === 'C2_JITTERED_BEACONING') return 'C2_JITTERED';
+  if (clean === 'C2_HIGH_FREQ' || clean === 'C2_HIGH_FREQUENCY') return 'C2_HIGH_FREQ';
+  if (clean === 'C2_LOW_FREQ' || clean === 'C2_LOW_FREQUENCY') return 'C2_LOW_FREQ';
+  if (clean === 'C2_BEACON' || clean === 'C2_BEACONING') return 'C2_PERIODIC';
   if (clean === 'SYN_FLOOD') return 'SYN_FLOOD';
   if (clean === 'UDP_FLOOD') return 'UDP_FLOOD';
   if (clean === 'UDP_AMPLIFICATION' || clean === 'UDP_REFLECTION') return 'UDP_REFLECTION';
   if (clean === 'SPOOFED_SOURCE' || clean === 'SPOOFED_SOURCE_FLOOD') return 'SPOOFED_SOURCE_FLOOD';
-  if (clean === 'C2_BEACON' || clean === 'C2_BEACONING') return 'C2_BEACONING';
   if (clean === 'MIXED_ATTACK') return 'MIXED_ATTACK';
   if (clean === 'TRAFFIC_ANOMALY') return 'TRAFFIC_ANOMALY';
   return 'NORMAL_BASELINE';
@@ -108,6 +120,35 @@ export function generateScenarioFlows(
           tcpFlags: proto === 'TCP' || proto === 'TLS' ? ['ACK', 'PSH'] : [],
           direction: 'INGRESS',
           payloadSnippet: `0x4500003c [Passive Ingress L3 Capture - Nominal Enterprise Session ${i}]`
+        });
+      }
+
+      // Add benign periodic NTP synchronization to demonstrate distinguishing benign periodic traffic from botnet C2
+      const ntpCount = 6;
+      for (let j = 0; j < ntpCount; j++) {
+        const ntpOffset = j * 64000;
+        const ntpId = `sim-ntp-${batchTag}-${++globalFlowSeq}-${j}`;
+        flows.push({
+          id: ntpId,
+          flowId: ntpId,
+          timestamp: new Date(baseTimeMs + ntpOffset).toISOString(),
+          timestampMs: baseTimeMs + ntpOffset,
+          sourceIP: '10.0.1.15',
+          destinationIP: '216.239.35.0',
+          sourcePort: 123,
+          destinationPort: 123,
+          protocol: 'NTP',
+          packetCount: 2,
+          byteCount: 96,
+          bytes: 96,
+          packetLength: 48,
+          durationMs: 30,
+          packetSizes: [48, 48],
+          interArrivalTimes: [64000],
+          interArrivalTime: 64000,
+          tcpFlags: [],
+          direction: 'INGRESS',
+          payloadSnippet: `0x1c0203e8 [NTP Client Poll Request / Standard Network Time Synchronization]`
         });
       }
       break;
@@ -299,75 +340,295 @@ export function generateScenarioFlows(
     }
 
     // -------------------------------------------------------------
-    // 6. C2_BEACONING
-    // Low-volume, highly periodic communication between compromised internal host 10.0.4.118
-    // and external destination, uniform payload size (340B), mean inter-arrival time (45s), low jitter (< 5%)
+    // 6. C2_PERIODIC: Periodic C2 Beaconing
+    // Strict, deterministic 30s heartbeat interval with low jitter (< 2%) and uniform 340B payload
+    // from host 10.0.4.118 to external C2 node (185.220.101.42:8443). Cobalt Strike malleable profile.
     // -------------------------------------------------------------
-    case 'C2_BEACONING': {
+    case 'C2_PERIODIC': {
       const compromisedHost = '10.0.4.118';
-      const c2Ip = '198.51.100.89';
+      const c2Ip = '185.220.101.42';
       const c2Port = 8443;
       const beaconPayloadSize = 340; // Uniform 340B malleable C2 frame
+      const beaconCount = Math.max(35, Math.floor(count * 0.55));
+      const backgroundCount = count - beaconCount;
 
-      for (let i = 0; i < count; i++) {
-        const isBeacon = i % 3 === 0;
+      // 1. Generate dedicated periodic beacon flow sequence
+      // 30s interval with micro-jitter (±150ms)
+      for (let i = 0; i < beaconCount; i++) {
+        const microJitterMs = ((i % 5) - 2) * 75; // -150ms to +150ms (0.5% jitter)
+        const timeOffset = i * 30000 + microJitterMs;
+        const idStr = `sim-c2-per-${batchTag}-${++globalFlowSeq}-${i}`;
 
-        if (isBeacon) {
-          // Strict periodic heartbeat: 45s interval with ±1.5s jitter (< 3.5%)
-          const jitterMs = ((i % 5) - 2) * 450;
-          const timeOffset = i * 15000 + jitterMs;
-          const idStr = `sim-c2-${batchTag}-${++globalFlowSeq}-${i}`;
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: compromisedHost,
+          destinationIP: c2Ip,
+          sourcePort: 49500 + (i % 30),
+          destinationPort: c2Port,
+          protocol: 'TLS',
+          packetCount: 8,
+          byteCount: 8 * beaconPayloadSize,
+          bytes: 8 * beaconPayloadSize,
+          packetLength: beaconPayloadSize,
+          durationMs: 140,
+          packetSizes: [340, 340, 340, 340],
+          interArrivalTimes: [30000 + microJitterMs],
+          interArrivalTime: 30000,
+          tcpFlags: ['SYN', 'ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x1603030154 [TLS Client Hello / Simulated Cobalt Strike-like Malleable Profile 340B]`
+        });
+      }
 
-          flows.push({
-            id: idStr,
-            flowId: idStr,
-            timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
-            timestampMs: baseTimeMs + timeOffset,
-            sourceIP: compromisedHost,
-            destinationIP: c2Ip,
-            sourcePort: 49500 + (i % 50),
-            destinationPort: c2Port,
-            protocol: 'TLS',
-            packetCount: 14,
-            byteCount: 14 * beaconPayloadSize,
-            bytes: 14 * beaconPayloadSize,
-            packetLength: beaconPayloadSize,
-            durationMs: 160,
-            packetSizes: [340, 340, 340, 340],
-            interArrivalTimes: [44850, 45150, 44920, 45080],
-            interArrivalTime: 45000,
-            tcpFlags: ['SYN', 'ACK', 'PSH'],
-            direction: 'INGRESS',
-            payloadSnippet: `0x1603030154 [TLS Client Hello / Simulated Cobalt Strike-like Malleable Profile 340B]`
-          });
-        } else {
-          // Interleaved routine internal background traffic
-          const timeOffset = i * 15000;
-          const idStr = `sim-bg-${batchTag}-${++globalFlowSeq}-${i}`;
+      // 2. Interleave background enterprise traffic
+      for (let i = 0; i < backgroundCount; i++) {
+        const timeOffset = i * 25000 + (i * 1300) % 7000;
+        const idStr = `sim-bg-${batchTag}-${++globalFlowSeq}-${i}`;
 
-          flows.push({
-            id: idStr,
-            flowId: idStr,
-            timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
-            timestampMs: baseTimeMs + timeOffset,
-            sourceIP: `10.0.2.${15 + (i % 40)}`,
-            destinationIP: `192.168.10.${50 + (i % 4)}`,
-            sourcePort: 40000 + (i * 19) % 20000,
-            destinationPort: 443,
-            protocol: 'TCP',
-            packetCount: 6,
-            byteCount: 3900,
-            bytes: 3900,
-            packetLength: 650,
-            durationMs: 220,
-            packetSizes: [800, 1100, 450, 1400],
-            interArrivalTimes: [1400, 3800, 7200],
-            interArrivalTime: 4100,
-            tcpFlags: ['ACK', 'PSH'],
-            direction: 'INGRESS',
-            payloadSnippet: `0x45000320 [Passive Background Flow Session]`
-          });
-        }
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: `10.0.1.${20 + (i % 30)}`,
+          destinationIP: `192.168.10.${45 + (i % 4)}`,
+          sourcePort: 38000 + ((i * 31) % 20000),
+          destinationPort: i % 2 === 0 ? 443 : 80,
+          protocol: 'TCP',
+          packetCount: 10 + (i % 15),
+          byteCount: (10 + (i % 15)) * (400 + (i * 27) % 600),
+          bytes: (10 + (i % 15)) * (400 + (i * 27) % 600),
+          packetLength: 400 + (i * 27) % 600,
+          durationMs: 350,
+          packetSizes: [450, 920, 1400, 320],
+          interArrivalTimes: [1200, 4500, 8900],
+          interArrivalTime: 3800,
+          tcpFlags: ['ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x45000210 [Passive Enterprise HTTPS Application Session]`
+        });
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------
+    // 7. C2_JITTERED: Jittered C2 Beaconing
+    // Mean interval 60s with deliberate evasion jitter (±15%, 48s to 72s)
+    // from 10.0.6.72 to 194.26.29.114:443. Semi-uniform payload (~488B).
+    // -------------------------------------------------------------
+    case 'C2_JITTERED': {
+      const compromisedHost = '10.0.6.72';
+      const c2Ip = '194.26.29.114';
+      const c2Port = 443;
+      const beaconCount = Math.max(28, Math.floor(count * 0.50));
+      const backgroundCount = count - beaconCount;
+
+      // Jitter offsets: -8.5s, +6.0s, -4.0s, +9.0s, -7.0s, +5.0s
+      const jitterOffsetsMs = [-8500, 6000, -4200, 9100, -6800, 5200, -3500, 7800];
+
+      for (let i = 0; i < beaconCount; i++) {
+        const jitterMs = jitterOffsetsMs[i % jitterOffsetsMs.length];
+        const timeOffset = i * 60000 + jitterMs;
+        const payloadSize = 480 + ((i * 4) % 16); // 480B to 496B
+        const idStr = `sim-c2-jit-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: compromisedHost,
+          destinationIP: c2Ip,
+          sourcePort: 51200 + (i % 20),
+          destinationPort: c2Port,
+          protocol: 'TLS',
+          packetCount: 10,
+          byteCount: 10 * payloadSize,
+          bytes: 10 * payloadSize,
+          packetLength: payloadSize,
+          durationMs: 210,
+          packetSizes: [payloadSize, payloadSize, payloadSize],
+          interArrivalTimes: [60000 + jitterMs],
+          interArrivalTime: 60000 + jitterMs,
+          tcpFlags: ['SYN', 'ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x1603030210 [TLS Session / Simulated Jittered C2 Callback Profile with Sleep Jitter]`
+        });
+      }
+
+      for (let i = 0; i < backgroundCount; i++) {
+        const timeOffset = i * 35000 + (i * 900) % 5000;
+        const idStr = `sim-bg-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: `10.0.3.${10 + (i % 25)}`,
+          destinationIP: `192.168.10.1`,
+          sourcePort: 42000 + ((i * 19) % 18000),
+          destinationPort: 8080,
+          protocol: 'TCP',
+          packetCount: 8,
+          byteCount: 4800,
+          bytes: 4800,
+          packetLength: 600,
+          durationMs: 180,
+          packetSizes: [500, 750, 1100],
+          interArrivalTimes: [2500, 6800],
+          interArrivalTime: 4200,
+          tcpFlags: ['ACK'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x45000180 [Routine Internal API Query Flow]`
+        });
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------
+    // 8. C2_HIGH_FREQ: High-Frequency C2
+    // Fast exfiltration / interactive shell heartbeat: 5.0s interval (0.200 Hz),
+    // micro-jitter ±120ms, uniform 256B payload from 10.0.8.204 to 198.51.100.220:8080
+    // -------------------------------------------------------------
+    case 'C2_HIGH_FREQ': {
+      const compromisedHost = '10.0.8.204';
+      const c2Ip = '198.51.100.220';
+      const c2Port = 8080;
+      const beaconPayloadSize = 256;
+      const beaconCount = Math.max(40, Math.floor(count * 0.65));
+      const backgroundCount = count - beaconCount;
+
+      for (let i = 0; i < beaconCount; i++) {
+        const microJitterMs = ((i % 5) - 2) * 40; // -80ms to +80ms
+        const timeOffset = i * 5000 + microJitterMs;
+        const idStr = `sim-c2-hfreq-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: compromisedHost,
+          destinationIP: c2Ip,
+          sourcePort: 54100 + (i % 10),
+          destinationPort: c2Port,
+          protocol: 'TCP',
+          packetCount: 6,
+          byteCount: 6 * beaconPayloadSize,
+          bytes: 6 * beaconPayloadSize,
+          packetLength: beaconPayloadSize,
+          durationMs: 85,
+          packetSizes: [256, 256, 256],
+          interArrivalTimes: [5000 + microJitterMs],
+          interArrivalTime: 5000,
+          tcpFlags: ['SYN', 'ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x45000100 [High-Frequency C2 Heartbeat / Interactive Shell Poll 256B]`
+        });
+      }
+
+      for (let i = 0; i < backgroundCount; i++) {
+        const timeOffset = i * 8000;
+        const idStr = `sim-bg-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: `10.0.2.${5 + (i % 20)}`,
+          destinationIP: `192.168.10.50`,
+          sourcePort: 36000 + ((i * 23) % 20000),
+          destinationPort: 53,
+          protocol: 'DNS',
+          packetCount: 4,
+          byteCount: 4 * 128,
+          bytes: 4 * 128,
+          packetLength: 128,
+          durationMs: 40,
+          packetSizes: [128, 128],
+          interArrivalTimes: [1800, 3200],
+          interArrivalTime: 2500,
+          tcpFlags: [],
+          direction: 'INGRESS',
+          payloadSnippet: `0x45000080 [Standard Internal DNS Resolution]`
+        });
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------
+    // 9. C2_LOW_FREQ: Low-Frequency C2
+    // Stealthy "low-and-slow" APT sleep: 180s (3-minute) interval,
+    // uniform 412B payload from 10.0.12.89 to 203.0.113.155:443
+    // -------------------------------------------------------------
+    case 'C2_LOW_FREQ': {
+      const compromisedHost = '10.0.12.89';
+      const c2Ip = '203.0.113.155';
+      const c2Port = 443;
+      const beaconPayloadSize = 412;
+      const beaconCount = Math.max(22, Math.floor(count * 0.45));
+      const backgroundCount = count - beaconCount;
+
+      for (let i = 0; i < beaconCount; i++) {
+        const microJitterMs = ((i % 5) - 2) * 300; // -600ms to +600ms
+        const timeOffset = i * 180000 + microJitterMs;
+        const idStr = `sim-c2-lfreq-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: compromisedHost,
+          destinationIP: c2Ip,
+          sourcePort: 58900 + (i % 15),
+          destinationPort: c2Port,
+          protocol: 'TLS',
+          packetCount: 8,
+          byteCount: 8 * beaconPayloadSize,
+          bytes: 8 * beaconPayloadSize,
+          packetLength: beaconPayloadSize,
+          durationMs: 190,
+          packetSizes: [412, 412, 412],
+          interArrivalTimes: [180000 + microJitterMs],
+          interArrivalTime: 180000,
+          tcpFlags: ['SYN', 'ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x160303019c [Low-and-Slow APT Implant Stealth Pulse / Extended Sleep Profile]`
+        });
+      }
+
+      for (let i = 0; i < backgroundCount; i++) {
+        const timeOffset = i * 45000;
+        const idStr = `sim-bg-${batchTag}-${++globalFlowSeq}-${i}`;
+
+        flows.push({
+          id: idStr,
+          flowId: idStr,
+          timestamp: new Date(baseTimeMs + timeOffset).toISOString(),
+          timestampMs: baseTimeMs + timeOffset,
+          sourceIP: `10.0.4.${30 + (i % 20)}`,
+          destinationIP: `192.168.20.10`,
+          sourcePort: 44000 + ((i * 17) % 15000),
+          destinationPort: 5432,
+          protocol: 'TCP',
+          packetCount: 12,
+          byteCount: 12 * 512,
+          bytes: 12 * 512,
+          packetLength: 512,
+          durationMs: 310,
+          packetSizes: [320, 512, 890],
+          interArrivalTimes: [2100, 5400],
+          interArrivalTime: 3700,
+          tcpFlags: ['ACK', 'PSH'],
+          direction: 'INGRESS',
+          payloadSnippet: `0x45000200 [Routine PostgreSQL Core Database Queries]`
+        });
       }
       break;
     }

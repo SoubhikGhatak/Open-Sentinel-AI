@@ -4,17 +4,21 @@ import {
   Activity,
   Zap,
   Radio,
+  Gauge,
   FileText,
   Search,
   Server,
-  AlertOctagon
+  AlertOctagon,
+  HardDrive
 } from 'lucide-react';
 
 export type ActiveTab =
   | 'dashboard'
   | 'traffic'
+  | 'ingestion'
   | 'ddos'
   | 'c2'
+  | 'scoring'
   | 'intel'
   | 'alerts'
   | 'forensics'
@@ -47,40 +51,54 @@ export const Navigation: React.FC<NavigationProps> = ({
       badge: 'Live'
     },
     {
+      id: 'ingestion' as ActiveTab,
+      label: '3. Passive Ingestion',
+      icon: HardDrive,
+      badge: 'Feature Extr',
+      badgeColor: 'bg-cyan-950 text-cyan-300 border-cyan-800'
+    },
+    {
       id: 'ddos' as ActiveTab,
-      label: '3. DDoS Detection',
+      label: '4. DDoS Detection',
       icon: Zap,
       badge: activeThreatsCount > 1 ? `${activeThreatsCount} Threats` : null,
       badgeColor: 'bg-rose-950 text-rose-300 border-rose-800/80'
     },
     {
       id: 'c2' as ActiveTab,
-      label: '4. C2 Beacon Detection',
+      label: '5. C2 Beacon Detection',
       icon: Radio,
       badge: 'FFT Jitter'
     },
     {
+      id: 'scoring' as ActiveTab,
+      label: '6. Threat Scoring',
+      icon: Gauge,
+      badge: 'AI Explainable',
+      badgeColor: 'bg-purple-950 text-purple-300 border-purple-800'
+    },
+    {
       id: 'intel' as ActiveTab,
-      label: '5. Threat Intelligence',
+      label: '7. Threat Intelligence',
       icon: FileText,
       badge: 'MITRE'
     },
     {
       id: 'alerts' as ActiveTab,
-      label: '6. Alerts',
+      label: '8. Alerts',
       icon: AlertOctagon,
       badge: criticalAlertsCount > 0 ? `${criticalAlertsCount} Critical` : null,
       badgeColor: 'bg-rose-600 text-white font-bold animate-pulse'
     },
     {
       id: 'forensics' as ActiveTab,
-      label: '7. Forensics',
+      label: '9. Forensics',
       icon: Search,
       badge: 'PCAP'
     },
     {
       id: 'system' as ActiveTab,
-      label: '8. System Status',
+      label: '10. System Status',
       icon: Server,
       badge: 'Diode 100%'
     }

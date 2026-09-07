@@ -9,6 +9,7 @@ import { Navigation, ActiveTab } from './components/common/Navigation';
 import { OneWayDiodeBanner } from './components/common/OneWayDiodeBanner';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { LiveTrafficView } from './components/traffic/LiveTrafficView';
+import { PassiveIngestionView } from './components/ingestion/PassiveIngestionView';
 import { DDoSView } from './components/ddos/DDoSView';
 import { C2BeaconView } from './components/c2/C2BeaconView';
 import { ThreatIntelView } from './components/intel/ThreatIntelView';
@@ -37,6 +38,8 @@ import {
 import { DetectionEngineService } from './services/engineService';
 import { generateScenarioFlows } from './detection/simulation/trafficGenerator';
 import { FullAnalysisPipelineResult } from './detection/engine';
+import { TrafficFlow } from './detection/types';
+import { PassiveObservation } from './detection/ingestion/types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -90,6 +93,20 @@ export default function App() {
     const pipeline = DetectionEngineService.simulateScenario(found.id as any, 70);
     setCurrentPipeline(pipeline);
     setPackets(pipeline.displayPackets);
+    setBeacons(pipeline.c2Candidates || []);
+    setTimeline(pipeline.timeline);
+    setTelemetry((prev) => ({
+      ...prev,
+      packetsPerSecond: pipeline.telemetry.packetsPerSecond,
+      bytesPerSecond: pipeline.telemetry.bytesPerSecond,
+      sourceIPEntropy: pipeline.features.ddos.sourceIPEntropy,
+      destinationConcentration: pipeline.features.ddos.destinationConcentrationHHI,
+      activeThreatsCount: pipeline.report.detectionSummary.detectedThreats.length > 0
+        ? pipeline.report.detectionSummary.detectedThreats.length
+        : (found.activeThreat ? 1 : 0),
+      criticalAlertsCount: pipeline.alerts.filter((a) => a.severity === 'Critical').length,
+      averageAiConfidence: pipeline.threatScore.confidence
+    }));
 
     // Call server endpoint if available
     try {
@@ -195,15 +212,85 @@ export default function App() {
     setActiveTab('alerts');
   };
 
+  // Transfer passively ingested flows to master detection pipeline
+  const handleTransferPassiveToPipeline = useCallback(
+    (observations: PassiveObservation[], sourceName: string) => {
+      if (!observations || observations.length === 0) return;
+
+      const flows: TrafficFlow[] = observations.map((obs, idx) => ({
+        id: obs.id || `flow-${idx}`,
+        flowId: obs.id,
+        timestamp: obs.timestamp,
+        timestampMs: obs.timestampMs,
+        sourceIP: obs.sourceIp,
+        destinationIP: obs.destinationIp,
+        sourcePort: obs.sourcePort,
+        destinationPort: obs.destinationPort,
+        protocol: obs.protocol,
+        packetCount: obs.packetCount,
+        byteCount: obs.byteCount,
+        bytes: obs.byteCount,
+        packetLength: obs.packetSizes[0] || Math.round(obs.byteCount / Math.max(1, obs.packetCount)),
+        durationMs: obs.durationMs,
+        packetSizes: obs.packetSizes,
+        interArrivalTimes: obs.interArrivalTimes,
+        tcpFlags: obs.tcpFlags,
+        direction: 'INGRESS',
+        payloadSnippet: obs.payloadSnippet
+      }));
+
+      const pipeline = DetectionEngineService.analyzeFlows(flows, 'PCAP', sourceName);
+      setCurrentPipeline(pipeline);
+
+      // Update telemetry
+      setTelemetry((prev) => ({
+        ...prev,
+        packetsPerSecond: pipeline.telemetry.packetsPerSecond,
+        bytesPerSecond: pipeline.telemetry.bytesPerSecond,
+        totalPackets: prev.totalPackets + pipeline.telemetry.totalPackets,
+        totalBytes: prev.totalBytes + pipeline.telemetry.totalBytes,
+        sourceIPEntropy: pipeline.features.ddos.sourceIPEntropy,
+        destinationConcentration: pipeline.features.ddos.destinationConcentrationHHI,
+        activeThreatsCount: pipeline.report.detectionSummary.detectedThreats.length > 0
+          ? pipeline.report.detectionSummary.detectedThreats.length
+          : 0,
+        criticalAlertsCount: pipeline.alerts.filter((a) => a.severity === 'Critical').length,
+        averageAiConfidence: pipeline.threatScore.confidence
+      }));
+
+      // Update packets
+      if (pipeline.displayPackets.length > 0) {
+        setPackets(pipeline.displayPackets);
+      }
+
+      // Update alerts if new detected threats
+      if (pipeline.alerts.length > 0) {
+        setAlerts((prev) => {
+          const combined = [...pipeline.alerts, ...prev];
+          const seen = new Set<string>();
+          return combined.filter((a) => {
+            if (seen.has(a.id)) return false;
+            seen.add(a.id);
+            return true;
+          }).slice(0, 40);
+        });
+      }
+    },
+    []
+  );
+
   // Real-time background simulation & polling loop
   useEffect(() => {
     if (!isStreaming) return;
 
     const interval = setInterval(() => {
       // Generate flows and pass through feature extraction & detection pipeline
-      const flows = generateScenarioFlows(activeScenario.id as any, 20);
+      const flows = generateScenarioFlows(activeScenario.id as any, 40);
       const pipeline = DetectionEngineService.analyzeFlows(flows, 'SIMULATION');
       setCurrentPipeline(pipeline);
+      if (pipeline.c2Candidates && pipeline.c2Candidates.length > 0) {
+        setBeacons(pipeline.c2Candidates);
+      }
 
       // Update recent packets display (deduplicate by packet id)
       setPackets((prev) => {
@@ -309,6 +396,10 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'ingestion' && (
+          <PassiveIngestionView onTransferToPipeline={handleTransferPassiveToPipeline} />
+        )}
+
         {activeTab === 'ddos' && (
           <DDoSView activeScenario={activeScenario} pipeline={currentPipeline} />
         )}
@@ -330,7 +421,7 @@ export default function App() {
         )}
 
         {activeTab === 'forensics' && (
-          <ForensicsView />
+          <ForensicsView pipeline={currentPipeline} activeScenario={activeScenario} />
         )}
 
         {activeTab === 'system' && (

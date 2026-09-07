@@ -13,6 +13,9 @@ import { parseCsvFlows, CsvParseResult } from '../detection/parsers/csvParser';
 import { generateScenarioFlows, SimulationScenarioId } from '../detection/simulation/trafficGenerator';
 import { runAllAcceptanceTests, TestSuiteSummary } from '../detection/tests/acceptanceTests';
 import { TrafficFlow, ModuleStatus } from '../detection/types';
+import { PassiveObservation, FeatureVector, SlidingWindowConfig, PassiveDatasetSummary } from '../detection/ingestion/types';
+import { extractWindowFeatures } from '../detection/ingestion/timeWindowAnalyzer';
+import { processUploadedFile, ProcessedIngestionPayload } from '../detection/ingestion/validator';
 
 export class DetectionEngineService {
   /**
@@ -96,6 +99,26 @@ export class DetectionEngineService {
    */
   public static runTests(): TestSuiteSummary {
     return runAllAcceptanceTests();
+  }
+
+  /**
+   * Extracts structured feature records across configurable sliding windows.
+   */
+  public static extractPassiveFeatures(
+    observations: PassiveObservation[],
+    config: SlidingWindowConfig = { windowDurationSeconds: 10, stepSeconds: 5 }
+  ): { featureVectors: FeatureVector[]; summary: PassiveDatasetSummary } {
+    return extractWindowFeatures(observations, config);
+  }
+
+  /**
+   * Validates and processes an uploaded passive file.
+   */
+  public static async processUploadedPassiveFile(
+    file: File,
+    config: SlidingWindowConfig = { windowDurationSeconds: 10, stepSeconds: 5 }
+  ): Promise<ProcessedIngestionPayload> {
+    return processUploadedFile(file, config);
   }
 
   /**

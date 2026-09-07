@@ -13,12 +13,48 @@ import {
 export const SIMULATION_SCENARIOS: SimulationScenario[] = [
   {
     id: 'baseline',
-    name: 'Normal Enterprise Baseline (Simulated)',
+    name: 'Normal Enterprise Baseline',
     category: 'Baseline',
-    description: 'Routine corporate network ingress: HTTPS microservices, DNS resolutions, and TLS telemetry. No active anomalies detected. Synthetic passive baseline.',
+    description: 'Routine corporate network ingress: HTTPS microservices, DNS resolutions, NTP sync, and internal database traffic. No malicious beaconing detected. Synthetic passive baseline.',
     targetService: 'All Ingress Nodes',
     trafficMultiplier: 1.0,
     activeThreat: null
+  },
+  {
+    id: 'c2-periodic',
+    name: 'Periodic C2 Beaconing',
+    category: 'C2',
+    description: 'Strict, deterministic 30s heartbeat interval with low jitter (< 2%) and uniform 340B payload from host 10.0.4.118 to external C2 node. Characteristic of Cobalt Strike malleable profile.',
+    targetService: 'Internal Host WS-092 (10.0.4.118)',
+    trafficMultiplier: 1.2,
+    activeThreat: 'Botnet C2 Beaconing'
+  },
+  {
+    id: 'c2-jittered',
+    name: 'Jittered C2 Beaconing',
+    category: 'C2',
+    description: 'Evasive C2 communication exhibiting intentional sleep jitter (mean IAT: 60s ± 15%) from 10.0.6.72 to evasion proxy. Semi-uniform payload with moderate periodicity score.',
+    targetService: 'Internal Host WS-044 (10.0.6.72)',
+    trafficMultiplier: 1.2,
+    activeThreat: 'Botnet C2 Beaconing'
+  },
+  {
+    id: 'c2-high-freq',
+    name: 'High-Frequency C2',
+    category: 'C2',
+    description: 'Rapid, aggressive C2 callback heartbeat at 5.0s intervals (0.200 Hz) with uniform 256B payloads from host 10.0.8.204. Indicates an interactive shell session or fast exfiltration.',
+    targetService: 'Internal Host DEV-102 (10.0.8.204)',
+    trafficMultiplier: 1.8,
+    activeThreat: 'Botnet C2 Beaconing'
+  },
+  {
+    id: 'c2-low-freq',
+    name: 'Low-Frequency C2',
+    category: 'C2',
+    description: 'Stealthy "low-and-slow" APT beaconing with an extended 180s (3-minute) sleep cycle from 10.0.12.89. Designed to evade short-window sliding time filters.',
+    targetService: 'Internal Server SVR-018 (10.0.12.89)',
+    trafficMultiplier: 1.1,
+    activeThreat: 'Botnet C2 Beaconing'
   },
   {
     id: 'syn-flood',
@@ -55,15 +91,6 @@ export const SIMULATION_SCENARIOS: SimulationScenario[] = [
     targetService: 'API Gateway (192.168.10.1:8080)',
     trafficMultiplier: 5.5,
     activeThreat: 'Spoofed-Source Flood'
-  },
-  {
-    id: 'c2-beacon',
-    name: 'C2 Beaconing Scenario (Simulated)',
-    category: 'C2',
-    description: 'Low-and-slow periodic TLS heartbeats with low jitter (45s ± 3%) to external IP, characteristic of simulated Cobalt Strike-like beacon patterns.',
-    targetService: 'Internal Workstation WS-092 (10.0.4.118)',
-    trafficMultiplier: 1.2,
-    activeThreat: 'Botnet C2 Beaconing'
   },
   {
     id: 'mixed-attack',

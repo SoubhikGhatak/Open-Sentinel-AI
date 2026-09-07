@@ -31,14 +31,27 @@ import {
 import { DetectionEngineService } from '../../services/engineService';
 import { FullAnalysisPipelineResult } from '../../detection/engine';
 import { TestSuiteSummary } from '../../detection/tests/acceptanceTests';
+import { SimulationScenario } from '../../types';
 
-export const ForensicsView: React.FC = () => {
+export interface ForensicsViewProps {
+  pipeline?: FullAnalysisPipelineResult;
+  activeScenario?: SimulationScenario;
+}
+
+export const ForensicsView: React.FC<ForensicsViewProps> = ({ pipeline: parentPipeline, activeScenario }) => {
   const [selectedPcap, setSelectedPcap] = useState<string>('syn_flood_volumetric.pcap');
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [pipelineResult, setPipelineResult] = useState<FullAnalysisPipelineResult | null>(() => {
-    return DetectionEngineService.simulateScenario('syn-flood');
+    return parentPipeline || DetectionEngineService.simulateScenario(activeScenario?.id || 'syn-flood');
   });
+
+  // Keep synced with parent pipeline if active scenario updates
+  React.useEffect(() => {
+    if (parentPipeline) {
+      setPipelineResult(parentPipeline);
+    }
+  }, [parentPipeline]);
 
   // Acceptance Tests modal state
   const [isTestModalOpen, setIsTestModalOpen] = useState<boolean>(false);

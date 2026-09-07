@@ -118,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {scenarios.map((sc) => (
                 <option key={sc.id} value={sc.id}>
-                  {sc.category === 'Baseline' ? '🟢' : '🔴'} {sc.name}
+                  {sc.category === 'Baseline' ? '🟢' : sc.category === 'C2' ? '🟣' : '🔴'} {sc.name}
                 </option>
               ))}
             </select>

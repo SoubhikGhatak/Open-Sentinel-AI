@@ -34,7 +34,7 @@ export const DDoSView: React.FC<DDoSViewProps> = ({ activeScenario, pipeline }) 
 
   const isSynAttack = activeScenario.id === 'syn-flood' || pipeline?.ddos?.threatType === 'SYN Flood';
   const isUdpAmp = activeScenario.id === 'udp-amplification' || pipeline?.ddos?.threatType === 'UDP Reflection/Amplification';
-  const isSpoofed = activeScenario.id === 'spoofed-source' || pipeline?.ddos?.threatType === 'Spoofed Source Flood';
+  const isSpoofed = activeScenario.id === 'spoofed-source' || pipeline?.ddos?.threatType === 'Spoofed Source Flood' || pipeline?.ddos?.threatType === 'Spoofed-Source Flood';
   const isUdpFlood = activeScenario.id === 'udp-flood' || pipeline?.ddos?.threatType === 'UDP Flood';
 
   const ddosFeats = pipeline?.features?.ddos;

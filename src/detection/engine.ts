@@ -21,12 +21,124 @@ import { calculateUnifiedThreatScore, generateAlertsFromAnalysis } from './scori
 import { ENGINE_CONFIG } from './config';
 import { NetworkPacket, TelemetryMetrics, TrafficTimePoint, SecurityAlert, C2BeaconCandidate, ThreatType } from '../types';
 
+export type CanonicalDetectionType =
+  | 'NORMAL'
+  | 'SYN_FLOOD'
+  | 'UDP_FLOOD'
+  | 'UDP_REFLECTION_AMPLIFICATION'
+  | 'SPOOFED_SOURCE_FLOOD'
+  | 'BOTNET_C2_BEACONING'
+  | 'TRAFFIC_ANOMALY';
+
+export interface CanonicalDetectionOutput {
+  threatType: CanonicalDetectionType;
+  confidence: number;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  evidence: string[];
+  features: Record<string, number | string | boolean>;
+  detectionMethod: string;
+}
+
+export function evaluatePassiveDetection(
+  features: FlowFeatures,
+  ddos: DDoSThreatResult,
+  c2Clusters: C2BeaconCluster[],
+  anomaly: AnomalyEvaluation
+): CanonicalDetectionOutput {
+  const topC2 = c2Clusters.find(
+    (c) => c.classification === 'High-confidence Beaconing Pattern' || c.classification === 'High-Confidence C2 Beacon'
+  );
+
+  // 1. C2 Beacon Detection (Highest priority for stealth machine heartbeat identification)
+  if (topC2 && topC2.periodicityScore >= 0.70 && topC2.jitterPercentage <= 15) {
+    const c2Confidence = topC2.classification === 'High-Confidence C2 Beacon' ? 95 : 92;
+    return {
+      threatType: 'BOTNET_C2_BEACONING',
+      confidence: c2Confidence,
+      severity: 'Critical',
+      evidence: [
+        `Periodic beaconing interval: ~${topC2.meanIntervalSeconds}s (jitter: ±${topC2.jitterPercentage}%)`,
+        `Payload size consistency: uniform ${topC2.packetSizeMean} bytes (σ = ${topC2.packetSizeStdDev} bytes)`,
+        `Target persistence: host ${topC2.sourceIp} -> ${topC2.destinationIp}:${topC2.destinationPort}`,
+        topC2.potentialC2FamilyCorrelation || 'Observed automated machine heartbeat'
+      ],
+      features: {
+        meanIntervalSeconds: topC2.meanIntervalSeconds,
+        jitterPercentage: topC2.jitterPercentage,
+        periodicityScore: topC2.periodicityScore,
+        packetSizeMean: topC2.packetSizeMean,
+        packetSizeStdDev: topC2.packetSizeStdDev,
+        fftPeakPower: topC2.fftPeakPower,
+        connectionCount: topC2.connectionCount
+      },
+      detectionMethod: 'Passive Statistical Timing Analysis & Spectral Peak Detection'
+    };
+  }
+
+  // 2. Specialized DDoS Detection
+  if (ddos.detected && ddos.threatType) {
+    let canonicalType: CanonicalDetectionType = 'TRAFFIC_ANOMALY';
+    if (ddos.threatType === 'SYN Flood') canonicalType = 'SYN_FLOOD';
+    else if (ddos.threatType === 'UDP Flood') canonicalType = 'UDP_FLOOD';
+    else if (ddos.threatType === 'UDP Reflection/Amplification') canonicalType = 'UDP_REFLECTION_AMPLIFICATION';
+    else if (ddos.threatType === 'Spoofed-Source Flood' || ddos.threatType === 'Spoofed Source Flood') canonicalType = 'SPOOFED_SOURCE_FLOOD';
+
+    return {
+      threatType: canonicalType,
+      confidence: ddos.confidence,
+      severity: ddos.severity,
+      evidence: ddos.evidence,
+      features: ddos.featureValues,
+      detectionMethod: 'Passive Multi-Signal Flow Ingress Classifier'
+    };
+  }
+
+  // 3. Statistical Traffic Anomaly
+  if (anomaly.anomalyScore >= 45 || anomaly.isAnomalous) {
+    return {
+      threatType: 'TRAFFIC_ANOMALY',
+      confidence: Math.min(90, 50 + Math.round(anomaly.anomalyScore * 0.4)),
+      severity: anomaly.anomalyScore >= 70 ? 'High' : 'Medium',
+      evidence: anomaly.evidence && anomaly.evidence.length > 0 ? anomaly.evidence : ['Statistical divergence from enterprise ingress baseline.'],
+      features: {
+        anomalyScore: anomaly.anomalyScore,
+        zScorePPS: features.anomaly.zScorePPS,
+        zScoreBPS: features.anomaly.zScoreBPS,
+        zScoreEntropy: features.anomaly.zScoreEntropy,
+        entropyDeviation: features.anomaly.entropyDeviation
+      },
+      detectionMethod: 'Passive Statistical Z-Score Baseline Divergence Model'
+    };
+  }
+
+  // 4. Nominal Normal Baseline
+  return {
+    threatType: 'NORMAL',
+    confidence: 96,
+    severity: 'Low',
+    evidence: [
+      `Nominal packet arrival rate: ${features.general.packetsPerSecond.toLocaleString()} pps within baseline range`,
+      `Source IP Shannon entropy: ${features.ddos.sourceIPEntropy.toFixed(2)} (nominal organic range 3.2 - 4.6)`,
+      `Destination concentration HHI: ${features.ddos.destinationConcentrationHHI} (distributed enterprise traffic)`
+    ],
+    features: {
+      packetsPerSecond: features.general.packetsPerSecond,
+      bytesPerSecond: features.general.bytesPerSecond,
+      sourceIPEntropy: features.ddos.sourceIPEntropy,
+      destinationConcentrationHHI: features.ddos.destinationConcentrationHHI,
+      synToAckRatio: features.ddos.synToAckRatio
+    },
+    detectionMethod: 'Passive Baseline Statistical Boundary Verification'
+  };
+}
+
 export interface FullAnalysisPipelineResult {
   features: FlowFeatures;
   ddos: DDoSThreatResult;
   c2Clusters: C2BeaconCluster[];
   anomaly: AnomalyEvaluation;
   threatScore: UnifiedThreatScore;
+  canonicalDetection: CanonicalDetectionOutput;
   alerts: NormalizedAlert[];
   report: IngestionReport;
   displayPackets: NetworkPacket[];
@@ -54,6 +166,9 @@ export function runDetectionPipeline(
 
   // 5. Unified Threat Scoring & Evidence Generation
   const threatScore = calculateUnifiedThreatScore(features, ddos, c2Clusters);
+
+  // 5b. Canonical Passive Detection Evaluation
+  const canonicalDetection = evaluatePassiveDetection(features, ddos, c2Clusters, anomaly);
 
   // 6. Alert Synthesis
   const alerts = generateAlertsFromAnalysis(features, ddos, c2Clusters, threatScore);
@@ -241,25 +356,56 @@ export function runDetectionPipeline(
     id: c.id,
     sourceIp: c.sourceIp,
     destinationC2: `${c.destinationIp}:${c.destinationPort}`,
-    c2Domain: 'c2-edge-cluster.net',
+    destinationIp: c.destinationIp,
+    destinationPort: c.destinationPort,
+    protocol: c.protocol,
+    c2Domain: c.destinationIp === '185.220.101.42'
+      ? 'cdn-cloudsync-telemetry.org'
+      : c.destinationIp === '194.26.29.114'
+      ? 'edge-analytics-sync.org'
+      : c.destinationIp === '198.51.100.220'
+      ? 'fastpoll-session-stream.io'
+      : c.destinationIp === '203.0.113.155'
+      ? 'update-catalog-cache.com'
+      : c.destinationIp === '216.239.35.0'
+      ? 'time.google.com'
+      : 'c2-edge-cluster.net',
     periodicitySeconds: c.meanIntervalSeconds,
     jitterPercentage: c.jitterPercentage,
-    confidenceScore:
-      c.classification === 'High-confidence Beaconing Pattern' || c.classification === 'High-Confidence C2 Beacon'
-        ? 94
-        : c.classification === 'Suspicious Periodic Communication' || c.classification === 'Suspicious Periodic Traffic'
-        ? 72
-        : 20,
-    ja3Hash: '771,4865-4866-4867,0-23-65281,29-23-24,0',
+    confidenceScore: c.c2Confidence,
+    c2Confidence: c.c2Confidence,
+    ja3Hash: c.protocol === 'TLS' ? '771,4865-4866-4867,0-23-65281,29-23-24,0' : undefined,
     knownMalwareFamily: c.potentialC2FamilyCorrelation || 'Simulated C2 beacon scenario',
-    beaconCount: 48,
+    beaconCount: c.connectionCount,
+    connectionCount: c.connectionCount,
+    connectionFrequencyHz: c.connectionFrequencyHz,
     firstSeen: c.firstSeen,
     lastSeen: c.lastSeen,
     status:
       c.classification === 'High-confidence Beaconing Pattern' || c.classification === 'High-Confidence C2 Beacon'
         ? 'Confirmed Beacon'
+        : c.classification === 'Benign Periodic Traffic'
+        ? 'Benign Periodic Service'
         : 'Suspected',
-    fftPeakPower: c.periodicityScore
+    fftPeakPower: c.periodicityScore,
+    meanIAT: c.meanIntervalSeconds,
+    stdDevIAT: c.stdDevIntervalSeconds,
+    coefficientOfVariation: c.coefficientOfVariation,
+    periodicityScore: c.periodicityScore,
+    destinationConcentration: c.destinationConcentration,
+    packetSizeConsistency: c.packetSizeConsistency,
+    packetSizeMean: c.packetSizeMean,
+    packetSizeStdDev: c.packetSizeStdDev,
+    iatRegularityScore: c.iatRegularityScore,
+    classification: c.classification,
+    severity: c.severity,
+    evidence: c.evidence,
+    scoreBreakdown: c.scoreBreakdown,
+    timelineEvents: c.timelineEvents,
+    iatDistribution: c.iatDistribution,
+    packetSizes: c.packetSizes,
+    isBenignPeriodicService: c.isBenignPeriodicService,
+    benignServiceReason: c.benignServiceReason
   }));
 
   return {
@@ -268,6 +414,7 @@ export function runDetectionPipeline(
     c2Clusters,
     anomaly,
     threatScore,
+    canonicalDetection,
     alerts,
     report,
     displayPackets,

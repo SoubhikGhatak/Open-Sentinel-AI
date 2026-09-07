@@ -143,46 +143,116 @@ export interface C2BeaconCluster {
   id: string;
   sourceIp: string;
   destinationIp: string;
+  destinationDomain?: string;
   destinationPort: number;
   protocol: ProtocolType;
   connectionCount: number;
   meanIntervalSeconds: number;
   stdDevIntervalSeconds: number;
+  coefficientOfVariation: number; // CV = stdDev / mean
   jitterPercentage: number;
+  connectionFrequencyHz: number; // 1 / meanIntervalSeconds
   packetSizeMean: number;
   packetSizeStdDev: number;
+  packetSizeConsistency: number; // 0.0 - 1.0
   periodicityScore: number;
-  c2SuspicionScore?: number;
-  destinationConcentration?: number;
+  iatRegularityScore: number; // 0.0 - 1.0
+  c2Confidence: number; // 0 - 100
+  c2SuspicionScore?: number; // legacy alias
+  destinationConcentration: number; // 0.0 - 1.0
   payloadConsistencyScore?: number;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
   classification:
     | 'Background Traffic'
     | 'Potential C2 Beacon'
     | 'Suspicious Periodic Communication'
     | 'Suspicious Periodic Traffic'
     | 'High-confidence Beaconing Pattern'
-    | 'High-Confidence C2 Beacon';
+    | 'High-Confidence C2 Beacon'
+    | 'Benign Periodic Traffic';
   potentialC2FamilyCorrelation?: string; // Conservative correlation only
   evidence: string[];
   firstSeen: string;
   lastSeen: string;
   fftStatus: string;
   fftPeakPower: number;
+  scoreBreakdown: {
+    periodicityContrib: number; // 0 - 25
+    iatRegularityContrib: number; // 0 - 20
+    destinationRepetitionContrib: number; // 0 - 20
+    connectionFreqContrib: number; // 0 - 15
+    packetSizeConsistencyContrib: number; // 0 - 20
+  };
+  timelineEvents: {
+    id: string;
+    timestamp: string;
+    timestampMs: number;
+    sourceIp: string;
+    destinationIp: string;
+    destinationPort: number;
+    bytes: number;
+    intervalSeconds: number;
+  }[];
+  iatDistribution?: number[];
+  packetSizes?: number[];
+  isBenignPeriodicService?: boolean;
+  benignServiceReason?: string;
+}
+
+export type ThreatScoreRiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+
+export interface ExplainableSignalCard {
+  id: string;
+  name: string;
+  score: number; // 0 - 100
+  contribution: 'HIGH' | 'MEDIUM' | 'LOW';
+  weightPercentage: number;
+  calculatedPoints: number;
+  telemetryContext: string;
+  forensicInterpretation: string;
+}
+
+export interface RiskFactorRadarPoint {
+  factor: string;
+  score: number; // 0 - 100
+  baseline: number; // normal baseline 0 - 100
+  fullMark: number;
+}
+
+export interface CorrelatedThreatIncident {
+  title: string;
+  correlatedSignalsCount: number;
+  correlationConfidence: number;
+  signalsSummary: string[];
+  threatVector: string;
 }
 
 export interface UnifiedThreatScore {
   score: number; // 0 - 100
   severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  riskLevel: ThreatScoreRiskLevel;
   confidence: number; // 0 - 100
+  label: string; // "AI-Assisted Threat Scoring"
+  subLabel: string; // "Explainable Behavioural Risk Engine"
   breakdown: {
     anomalyContribution: number;
     ddosContribution: number;
     temporalContribution: number;
     entropyContribution: number;
     concentrationContribution: number;
+    confidenceContribution?: number;
+    trafficIntensityContribution?: number;
+    protocolContribution?: number;
+    [key: string]: number | undefined;
   };
   primaryThreat: string;
   allEvidence: string[];
+  evidenceChain: string[];
+  operatorExplanation: string; // "WHY THIS MATTERS"
+  signalCards: ExplainableSignalCard[];
+  radarData: RiskFactorRadarPoint[];
+  correlation: CorrelatedThreatIncident;
+  scoreTimeline?: { time: string; score: number; scenarioId?: string }[];
 }
 
 export interface NormalizedAlert {
